@@ -1,0 +1,16 @@
+repositories:
+
+  # sensors
+
+  ## urg_node2
+  sensors/urg_node2:
+    type: git
+    url: https://github.com/Hokuyo-aut/urg_node2.git
+    version: main
+    recursive: true
+
+  ## realsense-ros
+  sensors/realsense-ros:
+    type: git
+    url: https://github.com/IntelRealSense/realsense-ros.git
+    version: ros2-master

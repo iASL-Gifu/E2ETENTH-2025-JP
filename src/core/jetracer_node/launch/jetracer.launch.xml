@@ -1,0 +1,13 @@
+<launch>   
+    <arg name="jetracer_param"  default="$(find-pkg-share jetracer_node)/config/jetracer.param.yaml"/>
+    <!-- JetRacer 制御ノードの起動 -->
+    <node pkg="jetracer_node" 
+          exec="control_node" 
+          name="jetracer_driver" 
+          output="screen">
+
+        <param from="$(var jetracer_param)"/>
+        <remap from="/cmd_drive" to="/jetracer/cmd_drive"/>
+    </node>
+    
+</launch>

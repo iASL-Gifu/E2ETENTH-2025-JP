@@ -1,0 +1,5 @@
+/**:
+  ros__parameters:
+    output_dir: "/home/tamiya/record/"
+    all_topics: false
+    topics: ['/scan']

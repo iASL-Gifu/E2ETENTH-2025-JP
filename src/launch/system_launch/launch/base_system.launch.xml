@@ -1,0 +1,33 @@
+<launch>
+    <!-- Realsense カメラの起動 -->
+    <include file="$(find-pkg-share realsense2_camera)/launch/rs_launch.py">
+        <arg name="enable_depth" value="false" />
+        <arg name="color_module.profile" value="848x480x30" />
+        <arg name="depth_module.profile" value="848x480x30" />
+    </include>
+
+    <!-- URG LiDAR ノードの起動 -->
+    <include file="$(find-pkg-share urg_node2)/launch/urg_node2.launch.xml">
+    </include>
+
+    <!-- Lidar フィルタ ノードの起動 -->
+    <node pkg="laser_filters"
+        exec="scan_to_scan_filter_chain"
+        name="scan_filter"
+        output="screen">
+        <!-- フィルタチェーンを YAML から読み込み -->
+        <param from="$(var filter_param)"/>
+        <!-- 必要に応じてトピック名を remap -->
+        <remap from="/scan"  to="/scan"/>
+        <remap from="/scan_filtered" to="/scan_filtered"/>
+    </node>
+
+    <!-- JetRacer 制御ノードの起動 -->
+    <include file="$(find-pkg-share jetracer_node)/launch/jetracer.launch.xml">
+    </include>
+
+    <!-- joy manager -->
+    <include file="$(find-pkg-share joy_manager)/launch/teleop.launch.xml">
+    </include>
+    
+</launch>
