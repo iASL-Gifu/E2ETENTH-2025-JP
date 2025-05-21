@@ -4,6 +4,8 @@
 ```bash
 # apt から install
 sudo apt install ros-${ROS_DISTRO}-laser-filters # for 2d lidar filter
+sudo apt install ros-${ROS_DISTRO}-laser-proc # for urg_node2
+sudo apt install ros-${ROS_DISTRO}-ackermann-msgs # for jetracer command
 sudo apt install ros-${ROS_DISTRO}-rosbag2-storage-mcap # for rosbag
 ```
 
@@ -23,6 +25,5 @@ git submodule update --init --recursive
 
 # build
 cd ~/E2ETENTH-2025-JP
-rosdep install --from-paths src -y --ignore-src
 colcon build --symlink-install
 ```
