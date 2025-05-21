@@ -12,10 +12,13 @@ sudo apt install ros-humble-rosbag2-storage-mcap # for rosbag
 # clone
 mkdir -p ~/ros2_ws/src
 cd ~/ros2_ws/src
-git clone
+git clone https://github.com/iASL-Gifu/E2ETENTH-2025-JP.git
 
-cd
+cd E2ETENTH-2025-JP
 vcs import src < packages.repos
+
+cd src/sensors/urg_node2/
+git submodule update --init --recursive
 
 # build
 cd ~/ros2_ws
