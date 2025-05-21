@@ -1,0 +1,16 @@
+scan_filter_chain:
+  ros__parameters:
+    scan_filter_chain:          
+      - name: laser_median_filter
+        type: laser_filters/LaserArrayFilter
+        params:
+          range_filter_chain:
+            - name: median_5
+              type: filters/MultiChannelMedianFilterFloat
+              params:
+                number_of_observations: "5"   # ← ここを文字列にする
+          intensity_filter_chain:
+            - name: median_5
+              type: filters/MultiChannelMedianFilterFloat
+              params:
+                number_of_observations: "5"   # ← ここも文字列にする
