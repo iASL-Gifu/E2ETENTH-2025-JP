@@ -14,7 +14,8 @@ setup(
         ('share/' + package_name, ['package.xml']),
         # launchディレクトリ内の全ての.pyと.xmlをインストール対象にする
         ('share/' + package_name + '/launch', glob('launch/*.py')),
-        ('share/' + package_name + '/launch', glob('launch/*.xml'))
+        ('share/' + package_name + '/launch', glob('launch/*.xml')),
+        ('share/' + package_name + '/config', glob('launch/*.yaml')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
