@@ -2,4 +2,4 @@
   ros__parameters:
     output_dir: "/home/tamiya/record/"
     all_topics: false
-    topics: ['/scan']
+    topics: ['/scan', 'scan_filtered', '/camera/color/image_raw']
