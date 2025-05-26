@@ -14,7 +14,6 @@ ament_target_dependencies(camera_lidar_calib_node
   sensor_msgs
   OpenCV
   cv_bridge
-  Eigen3
 )
 
 install(TARGETS camera_lidar_calib_node
