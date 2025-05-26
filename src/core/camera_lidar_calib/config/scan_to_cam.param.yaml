@@ -1,0 +1,35 @@
+/**:
+  ros__parameters:
+    image_width: 1280
+    image_height: 720
+    camera_name: narrow_stereo
+    camera_matrix:
+      rows: 3
+      cols: 3
+      data: [925.93636, 0.0, 634.97572,
+             0.0, 926.78841, 353.83795,
+             0.0, 0.0, 1.0]
+    distortion_model: plumb_bob
+    distortion_coefficients:
+      rows: 1
+      cols: 5
+      data: [0.116854, -0.220851, -0.004604, -0.003251, 0.0]
+    rectification_matrix:
+      rows: 3
+      cols: 3
+      data: [1.0, 0.0, 0.0,
+             0.0, 1.0, 0.0,
+             0.0, 0.0, 1.0]
+    projection_matrix:
+      rows: 3
+      cols: 4
+      data: [930.49628, 0.0, 629.27859, 0.0,
+             0.0, 941.5528, 351.02157, 0.0,
+             0.0, 0.0, 1.0, 0.0]
+
+    # 外部パラメータ（LiDAR → Camera）
+    extrinsic:
+      rotation: [1.0, 0.0, 0.0,
+                 0.0, 1.0, 0.0,
+                 0.0, 0.0, 1.0]
+      translation: [0.1, 0.0, 0.2]
