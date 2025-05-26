@@ -1,15 +1,15 @@
 <launch>
  
-  <arg name="calib_param"  default="$(find-pkg-share joy_manager)/config/scan_to_cam.param.yaml"/>
+  <arg name="calib_param"  default="$(find-pkg-share camera_lidar_calib)/config/scan_to_cam.param.yaml"/>
   <!-- joy manager node-->
-  <node pkg="camera_lidar_calib_node"
+  <node pkg="camera_lidar_calib"
         exec="camera_lidar_calib_node"
         name="camera_lidar_calib_node"
         output="screen">
         
     <param from="$(var calib_param)"/>
     <!-- joy -->
-    <remap from="/scan" to="/scan_filtered"/>
+    <remap from="/scan" to="/scan"/>
     <!-- 自律走行　コマンド -->
     <remap from="/camera/image_raw" to="/camera/color/image_raw"/>
 
