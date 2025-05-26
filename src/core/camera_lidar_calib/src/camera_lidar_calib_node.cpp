@@ -12,6 +12,11 @@ public:
         scan_sub_ = this->create_subscription<sensor_msgs::msg::LaserScan>(
             "/scan", 10, std::bind(&ScanOverlayNode::scan_callback, this, std::placeholders::_1));
 
+        this->declare_parameter<std::vector<double>>("camera_matrix.data", std::vector<double>{});
+        this->declare_parameter<std::vector<double>>("distortion_coefficients.data", std::vector<double>{});
+        this->declare_parameter<std::vector<double>>("extrinsic.rotation", std::vector<double>{});
+        this->declare_parameter<std::vector<double>>("extrinsic.translation", std::vector<double>{});
+
         // パラメータ取得（launchから読み込まれるparamファイルに依存）
         std::vector<double> k_data = this->get_parameter("camera_matrix.data").as_double_array();
         std::vector<double> d_data = this->get_parameter("distortion_coefficients.data").as_double_array();
