@@ -3,7 +3,6 @@
 #include "sensor_msgs/msg/laser_scan.hpp"
 #include "cv_bridge/cv_bridge.h"
 #include <opencv2/opencv.hpp>
-#include <Eigen/Dense>
 
 class SensorListener : public rclcpp::Node
 {
@@ -39,21 +38,23 @@ public:
     }
 
 private:
-    // Eigen行列変換用
-    Eigen::Matrix3d read_matrix3(const std::vector<double>& data) {
-        Eigen::Matrix3d mat;
+    // OpenCV行列へ変換
+    cv::Mat read_matrix3(const std::vector<double>& data) {
+        cv::Mat mat(3, 3, CV_64F);
         for (int i = 0; i < 9; ++i)
-            mat(i / 3, i % 3) = data[i];
+            mat.at<double>(i / 3, i % 3) = data[i];
         return mat;
     }
 
-    Eigen::Vector3d read_vector3(const std::vector<double>& data) {
-        return Eigen::Vector3d(data[0], data[1], data[2]);
+    cv::Mat read_vector3(const std::vector<double>& data) {
+        cv::Mat vec(3, 1, CV_64F);
+        for (int i = 0; i < 3; ++i)
+            vec.at<double>(i, 0) = data[i];
+        return vec;
     }
 
     void image_callback(const sensor_msgs::msg::Image::SharedPtr msg)
     {
-        // 最新画像を保存（スレッドセーフにするならmutex必要）
         latest_image_ = msg;
     }
 
@@ -61,7 +62,7 @@ private:
     {
         if (!latest_image_) return;
 
-        // OpenCV画像に変換
+        // OpenCV画像へ変換
         cv_bridge::CvImagePtr cv_ptr;
         try {
             cv_ptr = cv_bridge::toCvCopy(latest_image_, "bgr8");
@@ -75,14 +76,18 @@ private:
             double r = msg->ranges[i];
             if (!std::isfinite(r)) continue;
 
-            Eigen::Vector3d p_lidar(r * cos(angle), r * sin(angle), 0.0);
-            Eigen::Vector3d p_cam = R_ * p_lidar + t_;
+            // LiDAR座標点
+            cv::Mat p_lidar = (cv::Mat_<double>(3, 1) << r * cos(angle), r * sin(angle), 0.0);
 
-            if (p_cam.z() <= 0) continue;
+            // カメラ座標系へ変換
+            cv::Mat p_cam = R_ * p_lidar + t_;
+            double z = p_cam.at<double>(2, 0);
+            if (z <= 0.0) continue;
 
-            Eigen::Vector3d p_img = K_ * p_cam;
-            int u = static_cast<int>(p_img.x() / p_img.z());
-            int v = static_cast<int>(p_img.y() / p_img.z());
+            // ピクセル座標へ投影
+            cv::Mat p_img = K_ * p_cam;
+            int u = static_cast<int>(p_img.at<double>(0, 0) / z);
+            int v = static_cast<int>(p_img.at<double>(1, 0) / z);
 
             if (u >= 0 && u < cv_ptr->image.cols && v >= 0 && v < cv_ptr->image.rows) {
                 cv::circle(cv_ptr->image, cv::Point(u, v), 2, cv::Scalar(0, 255, 0), -1);
@@ -90,18 +95,19 @@ private:
         }
 
         auto out_msg = cv_ptr->toImageMsg();
-        out_msg->header = msg->header; // or use image header
+        out_msg->header = msg->header;  // または latest_image_->header;
         image_pub_->publish(*out_msg);
     }
 
+    // サブスクライバとパブリッシャ
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_sub_;
     rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr image_pub_;
 
     sensor_msgs::msg::Image::SharedPtr latest_image_;
 
-    Eigen::Matrix3d K_, R_;
-    Eigen::Vector3d t_;
+    // カメラ内部/外部パラメータ（cv::Matで保持）
+    cv::Mat K_, R_, t_;
 };
 
 int main(int argc, char **argv)
