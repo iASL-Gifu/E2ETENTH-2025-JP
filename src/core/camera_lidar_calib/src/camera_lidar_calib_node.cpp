@@ -3,8 +3,9 @@
 #include <sensor_msgs/msg/laser_scan.hpp>
 #include <cv_bridge/cv_bridge.h>
 #include <opencv2/opencv.hpp>
+#include <image_transport/image_transport.hpp>
 
-class ScanOverlayNode : public rclcpp::Node {
+class ScanOverlayNode : public rclcpp::Node, public std::enable_shared_from_this<ScanOverlayNode> {
 public:
     ScanOverlayNode() : Node("scan_overlay_node") {
         image_sub_ = this->create_subscription<sensor_msgs::msg::Image>(
@@ -17,7 +18,6 @@ public:
         this->declare_parameter<std::vector<double>>("extrinsic.rotation", std::vector<double>{});
         this->declare_parameter<std::vector<double>>("extrinsic.translation", std::vector<double>{});
 
-        // パラメータ取得（launchから読み込まれるparamファイルに依存）
         std::vector<double> k_data = this->get_parameter("camera_matrix.data").as_double_array();
         std::vector<double> d_data = this->get_parameter("distortion_coefficients.data").as_double_array();
         std::vector<double> r_data = this->get_parameter("extrinsic.rotation").as_double_array();
@@ -31,7 +31,10 @@ public:
         R_cl_ = R_lc.t();
         t_cl_ = -R_cl_ * t_lc;
 
-        RCLCPP_INFO(this->get_logger(), "Parameters successfully loaded from ROS param server.");
+        it_ = std::make_shared<image_transport::ImageTransport>(shared_from_this());
+        image_pub_ = it_->advertise("overlay_image", 1);
+
+        RCLCPP_INFO(this->get_logger(), "Parameters successfully loaded and publisher initialized.");
     }
 
 private:
@@ -58,7 +61,6 @@ private:
             float r = last_scan_->ranges[i];
             if (!std::isfinite(r)) continue;
 
-            // LiDAR座標点
             cv::Mat p_lidar = (cv::Mat_<double>(3, 1) << r * cos(angle), r * sin(angle), 0.0);
             cv::Mat p_cam = R_cl_ * p_lidar + t_cl_;
 
@@ -73,8 +75,11 @@ private:
             }
         }
 
-        cv::imshow("Scan Overlay", undistorted);
-        cv::waitKey(1);
+        // パブリッシュ用のROSメッセージに変換して送信
+        std_msgs::msg::Header header = msg->header;
+        sensor_msgs::msg::Image::SharedPtr output_msg =
+            cv_bridge::CvImage(header, "bgr8", undistorted).toImageMsg();
+        image_pub_.publish(output_msg);
     }
 
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_sub_;
@@ -82,6 +87,9 @@ private:
     sensor_msgs::msg::LaserScan::ConstSharedPtr last_scan_;
 
     cv::Mat K_, D_, R_cl_, t_cl_;
+
+    std::shared_ptr<image_transport::ImageTransport> it_;
+    image_transport::Publisher image_pub_;
 };
 
 int main(int argc, char **argv) {
