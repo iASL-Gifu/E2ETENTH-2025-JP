@@ -3,54 +3,33 @@
 #include <sensor_msgs/msg/laser_scan.hpp>
 #include <cv_bridge/cv_bridge.h>
 #include <opencv2/opencv.hpp>
-#include <yaml-cpp/yaml.h>
-#include <fstream>
 
 class ScanOverlayNode : public rclcpp::Node {
 public:
     ScanOverlayNode() : Node("scan_overlay_node") {
-        this->declare_parameter<std::string>("calib_yaml_path", "config/camera_lidar.yaml");
-        std::string yaml_path = this->get_parameter("calib_yaml_path").as_string();
-
-        if (!load_calibration(yaml_path)) {
-            RCLCPP_ERROR(this->get_logger(), "YAML calibration file could not be loaded: %s", yaml_path.c_str());
-            rclcpp::shutdown();
-            return;
-        }
-
         image_sub_ = this->create_subscription<sensor_msgs::msg::Image>(
             "/image_raw", 10, std::bind(&ScanOverlayNode::image_callback, this, std::placeholders::_1));
         scan_sub_ = this->create_subscription<sensor_msgs::msg::LaserScan>(
             "/scan", 10, std::bind(&ScanOverlayNode::scan_callback, this, std::placeholders::_1));
+
+        // パラメータ取得（launchから読み込まれるparamファイルに依存）
+        std::vector<double> k_data = this->get_parameter("camera_matrix.data").as_double_array();
+        std::vector<double> d_data = this->get_parameter("distortion_coefficients.data").as_double_array();
+        std::vector<double> r_data = this->get_parameter("extrinsic.rotation").as_double_array();
+        std::vector<double> t_data = this->get_parameter("extrinsic.translation").as_double_array();
+
+        K_ = cv::Mat(3, 3, CV_64F, k_data.data()).clone();
+        D_ = cv::Mat(d_data).reshape(1, 1).clone();
+
+        cv::Mat R_lc(3, 3, CV_64F, r_data.data());
+        cv::Mat t_lc(3, 1, CV_64F, t_data.data());
+        R_cl_ = R_lc.t();
+        t_cl_ = -R_cl_ * t_lc;
+
+        RCLCPP_INFO(this->get_logger(), "Parameters successfully loaded from ROS param server.");
     }
 
 private:
-    bool load_calibration(const std::string &path) {
-        try {
-            YAML::Node config = YAML::LoadFile(path);
-
-            auto k_data = config["camera_matrix"]["data"].as<std::vector<double>>();
-            K_ = cv::Mat(3, 3, CV_64F, k_data.data()).clone();
-
-            auto d_data = config["distortion_coefficients"]["data"].as<std::vector<double>>();
-            D_ = cv::Mat(d_data).reshape(1, 1).clone();
-
-            auto r_data = config["extrinsic"]["rotation"].as<std::vector<double>>();
-            auto t_data = config["extrinsic"]["translation"].as<std::vector<double>>();
-            cv::Mat R_lc(3, 3, CV_64F, r_data.data());
-            cv::Mat t_lc(3, 1, CV_64F, t_data.data());
-
-            R_cl_ = R_lc.t();
-            t_cl_ = -R_cl_ * t_lc;
-
-            RCLCPP_INFO(this->get_logger(), "Calibration loaded from %s", path.c_str());
-            return true;
-        } catch (const std::exception &e) {
-            RCLCPP_ERROR(this->get_logger(), "Exception loading calibration: %s", e.what());
-            return false;
-        }
-    }
-
     void scan_callback(const sensor_msgs::msg::LaserScan::ConstSharedPtr msg) {
         last_scan_ = msg;
     }
