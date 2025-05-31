@@ -17,10 +17,10 @@ git clone https://github.com/iASL-Gifu/E2ETENTH-2025-JP.git
 
 ## .repos内のパッケージをclone
 cd ~/E2ETENTH-2025-JP
-vcs import src < packages.repos
+vcs import ros2_ws/src < packages.repos
 
 ## urg nodeのサブモジュールをclone
-cd src/sensors/urg_node2/
+cd ros2_ws/src/sensors/urg_node2/
 git submodule update --init --recursive
 
 # build
