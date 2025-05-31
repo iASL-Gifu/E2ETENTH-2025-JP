@@ -1,0 +1,10 @@
+/**:
+  ros__parameters:
+    max_range: 30.0
+
+    downsample_num: 1080
+    ckpt_path: 
+    state_dim: 1080
+    action_dim: 2
+    hidden_dim: 256
+    policy_type: mlp ## mlp or 1d conv

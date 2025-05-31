@@ -1,0 +1,5 @@
+/**:
+  ros__parameters:
+    model_path: .pt
+    max_range: 30.0
+    downsample_num: 1081

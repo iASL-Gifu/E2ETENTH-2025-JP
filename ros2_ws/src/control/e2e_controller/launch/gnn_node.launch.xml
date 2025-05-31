@@ -1,0 +1,18 @@
+<launch>
+  
+  <arg name="gnn_node_param"  default="$(find-pkg-share e2e_controller)/config/gnn_node.param.yaml"/>
+  <!-- cnn node -->
+  <node pkg="e2e_controller" 
+        exec="gnn_node"
+        name="gnn_node"
+        output="screen">
+
+    <!-- パラメータ -->
+    <param from="$(var gnn_node_param)"/>
+    <!-- トピックのremap -->
+    <remap from="/scan" to="/scan_filtered"/>
+    <remap from="/cmd_drive" to="/ackermann_cmd"/>
+  </node>
+
+
+</launch>
