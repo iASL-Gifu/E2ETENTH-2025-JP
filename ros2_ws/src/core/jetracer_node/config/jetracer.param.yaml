@@ -1,5 +1,5 @@
 /**:
   ros__parameters:
-    steering_offset: 0.14
+    steering_offset: 0.145
     throttle_offset: 0.0
-    offset_step: 0.01
+    offset_step: 0.001
