@@ -142,9 +142,10 @@ class CNNNode(Node):
 
         try:
             with torch.no_grad():
-                output = self.model(scan_tensor)
+                mean, _ = self.model(scan_tensor)
+                action = torch.tanh(mean)
                 # output が [batch, 2] を想定し、steer, throttle をそれぞれ取得
-                steer, throttle = output[0].tolist()
+                steer, throttle = action[0].cpu().numpy()
         except Exception as e:
             self.get_logger().error(f"Inference failed: {e}")
             return
