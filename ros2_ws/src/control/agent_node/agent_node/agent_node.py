@@ -115,8 +115,12 @@ class CNNNode(Node):
                           action_dim=action_dim,
                           hidden_dim=hidden_dim,
                           policy_type=policy_type)
-        state_dict = torch.load(path, map_location=self.device)
-        model.load_state_dict(state_dict)
+        checkpoint = torch.load(path, map_location=self.device)
+            
+            # 'actor' というキーで保存されているアクターの state_dict を読み込む
+        if 'actor' in checkpoint:
+            model.load_state_dict(checkpoint['actor'])
+            self.get_logger().info(f"[✔] Pretrained actor weights successfully loaded from {path}")
         model.eval()
         model.to(self.device)
         return model
