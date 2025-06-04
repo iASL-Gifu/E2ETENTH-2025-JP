@@ -6,16 +6,12 @@
     timer_hz:             40.0
 
     # --- モード切替ボタン ---
-    joy_button_index:     3   # △ボタンで手動モード humble: 3, foxy: 2
-    ack_button_index:     0   # □ボタンで自律モード humble: 0, foxy: 3
+    joy_button_index:     2   # △ボタンで手動モード humble: 3, foxy: 2
+    ack_button_index:     3   # □ボタンで自律モード humble: 0, foxy: 3
 
     # --- start/stop トリガボタン ---
     start_button_index:   7   # R2 ボタンで start=true humble: 7, foxy: 7
     stop_button_index:    6   # L2 ボタンで start=false humble: 6, foxy: 6
-
-    # --- 反転設定 ---
-    invert_speed:         true
-    invert_steer:         false
 
 ## button index (DualShock4) humble
 ## humble humble humble

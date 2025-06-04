@@ -37,9 +37,6 @@ public:
     declare_parameter<int>("start_button_index", 9);
     declare_parameter<int>("stop_button_index",  8);
 
-    declare_parameter<bool>("invert_speed", true);
-    declare_parameter<bool>("invert_steer", false);
-
     declare_parameter<double>("timer_hz", 40.0);
 
     get_parameter("speed_scale", speed_scale_);
@@ -48,8 +45,6 @@ public:
     get_parameter("ack_button_index", ack_button_index_);
     get_parameter("start_button_index", start_button_index_);
     get_parameter("stop_button_index", stop_button_index_);
-    get_parameter("invert_speed", invert_speed_);
-    get_parameter("invert_steer", invert_steer_);
     get_parameter("timer_hz", timer_hz_);
 
     last_autonomy_msg_.speed = 0.0;
@@ -120,9 +115,7 @@ private:
     // 2) Joyモードでの速度・ステア算出
     if (joy_active_) {
       double raw_speed = (msg->axes.size() > 1 ? msg->axes[1] : 0.0);
-      double raw_steer = (msg->axes.size() > 2 ? msg->axes[2] : 0.0);
-      if (invert_speed_) raw_speed = -raw_speed;
-      if (invert_steer_) raw_steer = -raw_steer;
+      double raw_steer = (msg->axes.size() > 3 ? msg->axes[3] : 0.0); // foxy: axes[2], humble: axes[3]
       joy_speed_ = raw_speed * speed_scale_;
       joy_steer_ = raw_steer * steer_scale_;
     }
@@ -158,12 +151,13 @@ private:
     bool scale_dec = (msg->buttons.size() > 4 && msg->buttons[4] == 1); // L1
     if (check_button_press(scale_inc, prev_scale_inc_pressed_)) {
       steer_scale_ = std::round((steer_scale_ + 0.1) * 10.0) / 10.0;
-      if (steer_scale_ < 0.1) steer_scale_ = 0.1;
+      if (steer_scale_ < 0.1) steer_scale_ = 0.1; // steer_scale_が0にならないように修正
       RCLCPP_INFO(get_logger(), "steer_scale = %.1f", steer_scale_);
     }
     if (check_button_press(scale_dec, prev_scale_dec_pressed_)) {
-      steer_scale_ = std::max(steer_scale_ - 0.1, 0.0);
+      steer_scale_ = std::max(steer_scale_ - 0.1, 0.0); // 0.0より小さくならないように
       steer_scale_ = std::round(steer_scale_ * 10.0) / 10.0;
+      if (steer_scale_ < 0.1 && steer_scale_ != 0.0) steer_scale_ = 0.1; // steer_scaleが0でない場合、最小値を0.1にする
       RCLCPP_INFO(get_logger(), "steer_scale = %.1f", steer_scale_);
     }
   }
@@ -203,7 +197,8 @@ private:
 
   // パラメータ
   double speed_scale_, steer_scale_;
-  bool invert_speed_, invert_steer_;
+  // invert_speed_, invert_steer_ メンバ変数を削除
+  // bool invert_speed_, invert_steer_;
   int joy_button_index_, ack_button_index_;
   int start_button_index_, stop_button_index_;
   double timer_hz_;
