@@ -1,5 +1,7 @@
 /**:
   ros__parameters:
+    throttle_inversion: True
+    steering_inversion: False
     steering_offset: 0.145
     throttle_offset: 0.0
     offset_step: 0.001
