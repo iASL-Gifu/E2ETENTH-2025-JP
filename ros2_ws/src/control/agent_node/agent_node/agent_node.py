@@ -9,7 +9,7 @@ import os
 
 from .models.actor import get_actor  # モデル定義
 
-class CNNNode(Node):
+class AgentNode(Node):
     def __init__(self):
         super().__init__('agent_node')
 
@@ -145,13 +145,14 @@ class CNNNode(Node):
                 mean, _ = self.model(scan_tensor)
                 action = torch.tanh(mean)
                 # output が [batch, 2] を想定し、steer, throttle をそれぞれ取得
-                steer, throttle = action[0].cpu().numpy()
+                steer, throttle = action.tolist()[0]
+                throttle = (throttle + 1.0) / 2.0
         except Exception as e:
             self.get_logger().error(f"Inference failed: {e}")
             return
 
         steer = float(np.clip(steer, -1.0, 1.0))
-        throttle = float(np.clip(throttle, -1.0, 1.0))
+        throttle = float(np.clip(throttle, 0.0, 1.0))
 
         drive_msg = AckermannDrive()
         drive_msg.steering_angle = steer
@@ -161,7 +162,7 @@ class CNNNode(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = CNNNode()
+    node = AgentNode()
     
     try:
         rclpy.spin(node)
