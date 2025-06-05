@@ -8,6 +8,9 @@
 python3.11 -m venv env
 source env/bin/activate
 pip3 install -r requirements.txt
+
+# for gnn
+python3 setup.py build_ext --inplace
 ```
 
 ## Data Processing
