@@ -2,11 +2,22 @@
 
 ## setup dependencies
 ```bash
+## ros2
 # apt から install
 sudo apt install ros-${ROS_DISTRO}-laser-filters # for 2d lidar filter
 sudo apt install ros-${ROS_DISTRO}-laser-proc # for urg_node2
 sudo apt install ros-${ROS_DISTRO}-ackermann-msgs # for jetracer command
 sudo apt install ros-${ROS_DISTRO}-rosbag2-storage-mcap # for rosbag
+
+## python
+# for jetracer 
+git clone https://github.com/NVIDIA-AI-IOT/jetracer.git
+cd jetracer
+sudo python3 setup.py install
+
+# for 2d Lidar Graph CUDA
+cd python/lidar_graph
+pip3 install --user -e .
 ```
 
 ## clone and build
