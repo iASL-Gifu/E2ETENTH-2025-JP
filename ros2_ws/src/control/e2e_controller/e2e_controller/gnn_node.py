@@ -105,8 +105,6 @@ class GNNNode(Node):
             hidden_dim=self.model_hidden_dim,
             output_dim=self.model_output_dim,
             pool_method=self.model_pool_method,
-            heads=self.model_heads,
-            lstm_hidden_dim=self.model_lstm_hidden_dim
         ).to(self.device)
         
         model.load_state_dict(torch.load(path, map_location=self.device))
