@@ -1,9 +1,13 @@
 /**:
   ros__parameters:
-    model_path: .pt
     max_range: 30.0
     downsample_num: 1081
     distance_threshold: 0.033
-    model_input_dim: 2
-    model_hidden_dim: 64
-    model_output_dim: 2
+
+    model_name: LidarGCN #LidarGCN or LidarGAT LidarGCNLstm LidarGATLstm
+    model_path: .pth
+    input_dim: 2
+    hidden_dim: 64
+    output_dim: 2
+    pool_method: mean # mean or max
+
