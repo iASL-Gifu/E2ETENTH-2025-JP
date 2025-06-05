@@ -1,0 +1,17 @@
+# train.yaml
+sequence_length: 1
+num_scan: 1081 # Lidar scan num
+range_max:  30.0 # max range of lidar
+batch_size : 16 # batch size for training
+num_epochs : 50 # number of epochs for training
+lr : 0.001 # learning rate
+## 早期終了　設定
+early_stop_epoch : 5 # number of epochs with no improvement after which training will be stopped
+
+ckpt_path: "./ckpt" # path to save checkpoints
+data_path: "./datasets" # path to the dataset
+
+## model パラメータ
+model_name: TinyLidarNet
+input_dim: 1081 
+output_dim: 2
