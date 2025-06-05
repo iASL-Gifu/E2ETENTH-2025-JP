@@ -35,7 +35,7 @@ class CNNNode(Node):
 
         # ROS I/O
         self.subscription = self.create_subscription(LaserScan, '/scan', self.scan_callback, 10)
-        self.publisher = self.create_publisher(AckermannDrive, '/drive', 10)
+        self.publisher = self.create_publisher(AckermannDrive, '/cmd_drive', 10)
 
         self.get_logger().info(f"[STARTED] Node is ready. Model: {self.model_name}")
 
@@ -94,7 +94,6 @@ class CNNNode(Node):
             self.get_logger().warn("Model is not loaded, skipping inference.", throttle_skip_first=True, throttle_time_sec=5.0)
             return
             
-        # ... (データ前処理と指令値のパブリッシュは変更なし) ...
         full_ranges = np.array(msg.ranges, dtype=np.float32)
         full_ranges = np.nan_to_num(full_ranges, nan=self.max_range, posinf=self.max_range)
         num_beams = len(full_ranges)
