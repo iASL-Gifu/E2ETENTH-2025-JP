@@ -84,11 +84,23 @@ def main(cfg: DictConfig) -> None:
             # モデルへの入力は、常にグラフのリスト
             output = model(data_sequence)
             
-            # --- ターゲット（正解ラベル）の準備 ---
-            # 常に最後のタイムステップの制御量を予測すると仮定
-            target_steer = batch['steer_seq'][:, -1]
-            target_speed = batch['speed_seq'][:, -1]
-            target = torch.stack([target_steer, target_speed], dim=1).to(device)
+            # モデルの出力テンソルの次元数に応じてターゲットの形状を変える
+            if output.dim() == 3:
+                # --- 出力が3次元 (B, T, F) の場合: 時系列モデルと判断 ---
+                target_steer = batch['steer_seq']
+                target_speed = batch['speed_seq']
+                target = torch.stack([target_steer, target_speed], dim=2).to(device)
+            
+            elif output.dim() == 2:
+                # --- 出力が2次元 (B, F) の場合: 非時系列モデルと判断 ---
+                target_steer = batch['steer_seq'][:, -1]
+                target_speed = batch['speed_seq'][:, -1]
+                target = torch.stack([target_steer, target_speed], dim=1).to(device)
+
+            else:
+                # 想定外の形状の場合はエラーを出す
+                raise ValueError(f"Unsupported output shape: {output.shape}")
+
 
             # 損失計算とパラメータ更新
             loss = criterion(output, target)

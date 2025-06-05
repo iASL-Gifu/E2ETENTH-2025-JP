@@ -45,7 +45,6 @@ class LidarGCN(torch.nn.Module):
         
         return action
 
-
 class LidarGcnLstmNet(nn.Module):
     """
     GCNとLSTMを組み合わせた、自己完結した時系列モデル。
@@ -54,17 +53,14 @@ class LidarGcnLstmNet(nn.Module):
                  lstm_hidden_dim=128, lstm_layers=1, pool_method='mean'):
         super(LidarGcnLstmNet, self).__init__()
         
-        # --- GCN層の定義 ---
         self.gcn_conv1 = GCNConv(input_dim, hidden_dim)
         self.gcn_conv2 = GCNConv(hidden_dim, hidden_dim // 2)
         self.gcn_conv3 = GCNConv(hidden_dim // 2, hidden_dim // 4)
         self.gcn_conv4 = GCNConv(hidden_dim // 4, hidden_dim // 8)
         self.pool_method = pool_method
         
-        # GCNエンコーダ部分の出力次元
         gcn_embedding_dim = hidden_dim // 8
         
-        # --- LSTM層の定義 ---
         self.lstm = nn.LSTM(
             input_size=gcn_embedding_dim,
             hidden_size=lstm_hidden_dim,
@@ -72,7 +68,6 @@ class LidarGcnLstmNet(nn.Module):
             batch_first=True
         )
         
-        # --- 全結合層（MLP）の定義 ---
         self.fc_out = nn.Linear(lstm_hidden_dim, output_dim)
 
     def forward(self, data_sequence):
@@ -84,43 +79,46 @@ class LidarGcnLstmNet(nn.Module):
         if not isinstance(data_sequence, list):
             data_sequence = [data_sequence]
 
+        batch_size = data_sequence[0].num_graphs
+        seq_len = len(data_sequence)
+
         # --- Step 1: 各タイムステップのグラフからGCNで特徴ベクトルを抽出 ---
         gcn_embeddings = []
         for graph_batch in data_sequence:
             x, edge_index, batch = graph_batch.x, graph_batch.edge_index, graph_batch.batch
-            
-            # GCN処理
             x = F.relu(self.gcn_conv1(x, edge_index))
             x = F.relu(self.gcn_conv2(x, edge_index))
             x = F.relu(self.gcn_conv3(x, edge_index))
             x = F.relu(self.gcn_conv4(x, edge_index))
             
-            # プーリング処理
             if self.pool_method == 'mean':
                 embedding = global_mean_pool(x, batch)
             elif self.pool_method == 'max':
                 embedding = global_max_pool(x, batch)
             else:
                 raise ValueError("Invalid pool method")
-            
             gcn_embeddings.append(embedding)
             
         # --- Step 2: 特徴ベクトルを時間軸に沿って1つのテンソルに束ねる ---
-        # 形状: (batch_size, sequence_length, gcn_embedding_dim)
         gnn_sequence = torch.stack(gcn_embeddings, dim=1)
 
         # --- Step 3: LSTMに特徴シーケンスを入力 ---
-        # lstm_outの形状: (batch_size, sequence_length, lstm_hidden_dim)
         lstm_out, _ = self.lstm(gnn_sequence)
         
-        # --- Step 4: シーケンスの最後の出力を使って予測 ---
-        # last_lstm_outの形状: (batch_size, lstm_hidden_dim)
-        last_lstm_out = lstm_out[:, -1, :]
-        
-        # --- Step 5: 最終的な制御量を出力 ---
-        action = self.fc_out(last_lstm_out)
-        
-        return action
+        # 学習時か評価時かで処理を分岐
+        if self.training:
+            # --- 学習モードの場合 ---
+            # 全シーケンスをFC層に渡し、(B, T, F) の出力を得る
+            x = lstm_out.contiguous().view(batch_size * seq_len, -1)
+            actions = self.fc_out(x)
+            # 出力の形状を (Batch, SequenceLength, output_dim) に戻す
+            return actions.view(batch_size, seq_len, -1)
+        else:
+            # --- 評価・推論モードの場合 ---
+            # シーケンスの最後の出力だけを取り出してFC層に渡す
+            last_lstm_out = lstm_out[:, -1, :] # Shape: (Batch, lstm_hidden_dim)
+            actions = self.fc_out(last_lstm_out)
+            return actions
     
 
 class LidarGAT(torch.nn.Module):
@@ -198,11 +196,10 @@ class LidarGatLstmNet(nn.Module):
     GATとLSTMを組み合わせた、自己完結した時系列モデル。
     """
     def __init__(self, input_dim, hidden_dim, output_dim, 
-                 lstm_hidden_dim=128, lstm_layers=1, heads=8, 
-                 dropout_rate=0.5, pool_method='mean'):
+                    lstm_hidden_dim=128, lstm_layers=1, heads=8, 
+                    dropout_rate=0.5, pool_method='mean'):
         super(LidarGatLstmNet, self).__init__()
         
-        # --- GAT層の定義 ---
         self.dropout_rate = dropout_rate
         self.gat_conv1 = GATConv(input_dim, hidden_dim, heads=heads, dropout=dropout_rate)
         self.gat_conv2 = GATConv(hidden_dim * heads, hidden_dim // 2, heads=heads, dropout=dropout_rate)
@@ -210,10 +207,8 @@ class LidarGatLstmNet(nn.Module):
         self.gat_conv4 = GATConv((hidden_dim // 4) * heads, hidden_dim // 8, heads=1, concat=True, dropout=dropout_rate)
         self.pool_method = pool_method
         
-        # GATエンコーダ部分の出力次元
         gat_embedding_dim = hidden_dim // 8
         
-        # --- LSTM層の定義 ---
         self.lstm = nn.LSTM(
             input_size=gat_embedding_dim,
             hidden_size=lstm_hidden_dim,
@@ -221,7 +216,6 @@ class LidarGatLstmNet(nn.Module):
             batch_first=True
         )
         
-        # --- 全結合層（MLP）の定義 ---
         self.fc_out = nn.Linear(lstm_hidden_dim, output_dim)
 
     def forward(self, data_sequence):
@@ -233,12 +227,13 @@ class LidarGatLstmNet(nn.Module):
         if not isinstance(data_sequence, list):
             data_sequence = [data_sequence]
 
+        batch_size = data_sequence[0].num_graphs
+        seq_len = len(data_sequence)
+
         # --- Step 1: 各タイムステップのグラフからGATで特徴ベクトルを抽出 ---
         gat_embeddings = []
         for graph_batch in data_sequence:
             x, edge_index, batch = graph_batch.x, graph_batch.edge_index, graph_batch.batch
-
-            # GAT処理
             x = F.dropout(x, p=self.dropout_rate, training=self.training)
             x = F.elu(self.gat_conv1(x, edge_index))
             x = F.dropout(x, p=self.dropout_rate, training=self.training)
@@ -248,14 +243,12 @@ class LidarGatLstmNet(nn.Module):
             x = F.dropout(x, p=self.dropout_rate, training=self.training)
             x = F.elu(self.gat_conv4(x, edge_index))
             
-            # プーリング処理
             if self.pool_method == 'mean':
                 embedding = global_mean_pool(x, batch)
             elif self.pool_method == 'max':
                 embedding = global_max_pool(x, batch)
             else:
                 raise ValueError("Invalid pool method")
-
             gat_embeddings.append(embedding)
             
         # --- Step 2: 特徴ベクトルを時間軸に沿って1つのテンソルに束ねる ---
@@ -264,10 +257,14 @@ class LidarGatLstmNet(nn.Module):
         # --- Step 3: LSTMに特徴シーケンスを入力 ---
         lstm_out, _ = self.lstm(gnn_sequence)
         
-        # --- Step 4: シーケンスの最後の出力を使って予測 ---
-        last_lstm_out = lstm_out[:, -1, :]
-        
-        # --- Step 5: 最終的な制御量を出力 ---
-        action = self.fc_out(last_lstm_out)
-        
-        return action
+        # 学習時か評価時かで処理を分岐
+        if self.training:
+            # --- 学習モードの場合 ---
+            x = lstm_out.contiguous().view(batch_size * seq_len, -1)
+            actions = self.fc_out(x)
+            return actions.view(batch_size, seq_len, -1)
+        else:
+            # --- 評価・推論モードの場合 ---
+            last_lstm_out = lstm_out[:, -1, :]
+            actions = self.fc_out(last_lstm_out)
+            return actions
