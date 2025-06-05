@@ -6,12 +6,16 @@ batch_size : 16 # batch size for training
 num_epochs : 50 # number of epochs for training
 lr : 0.001 # learning rate
 ## 早期終了　設定
-early_stop_epoch : 5 # number of epochs with no improvement after which training will be stopped
+early_stop_epochs : 5 # number of epochs with no improvement after which training will be stopped
 
-ckpt_path: "./ckpt" # path to save checkpoints
-data_path: "./datasets" # path to the dataset
+ckpt_path: "./ckpts/num_1" # path to save checkpoints
+data_path: "./datasets/num_1" # path to the dataset
 
 ## model パラメータ
-model_name: TinyLidarNet
+model_name: TinyLidarNet ## TinyLidarNet or TinyLidarLstmNet
 input_dim: 1081 
 output_dim: 2
+
+hydra:
+  run:
+    dir: ./outputs/train_cnn/${now:%Y-%m-%d}/${now:%H-%M-%S}
