@@ -16,7 +16,7 @@ def load_gnn_model(model_name, input_dim, hidden_dim, output_dim, pool_method='m
                         hidden_dim=hidden_dim,
                         output_dim=output_dim,
                         pool_method=pool_method)
-    elif model_name == 'LidarLstmGCN':
+    elif model_name == 'LidarGCNLstm':
         return LidarGcnLstmNet(input_dim=input_dim,
                         hidden_dim=hidden_dim,
                         output_dim=output_dim,
@@ -28,7 +28,7 @@ def load_gnn_model(model_name, input_dim, hidden_dim, output_dim, pool_method='m
                         heads=8,
                         dropout_rate=0.5,
                         pool_method=pool_method)
-    elif model_name == 'LidarGatLstmNet':
+    elif model_name == 'LidarGATLstm':
         return LidarGatLstmNet(input_dim=input_dim,
                         hidden_dim=hidden_dim,
                         output_dim=output_dim,

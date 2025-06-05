@@ -14,7 +14,7 @@ data_path: "./datasets/num_1" # path to the dataset
 ## model パラメータ
 model_name: LidarGCN ## LidarGCN or LidarGAT
 input_dim: 2 ## graphのnodeの次元数 (2: x, y)
-hidden_dim: 64
+hidden_dim: 128
 output_dim: 2
 pool_method: max # 'max' or 'mean'
 
