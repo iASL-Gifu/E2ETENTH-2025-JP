@@ -1,6 +1,5 @@
 /**:
   ros__parameters:
-  cnn_node:
     model_name: TinyLidarNet ## TinyLidarNet or TinyLidarLstmNet
     model_path: .pt
     max_range: 30.0
