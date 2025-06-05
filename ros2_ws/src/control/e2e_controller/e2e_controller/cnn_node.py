@@ -7,100 +7,104 @@ import torch
 import numpy as np
 import os
 
-from .models.cnn import TinyLidarNet  # ← モデル定義を忘れずに import
-
+# ファクトリ関数をインポート
+from .models.models import load_cnn_model
 
 class CNNNode(Node):
     def __init__(self):
         super().__init__('lidar_drive_node')
 
-        # Device設定（CUDA優先）
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.get_logger().info(f"[DEVICE] Using device: {self.device}")
 
-        # Declare parameters
-        self.declare_parameter('model_path', 'checkpoint.pt')
+        # パラメータ宣言
+        self.declare_parameter('model_name', 'TinyLidarNet')
+        self.declare_parameter('model_path', 'model.pth')
         self.declare_parameter('max_range', 30.0)
-        self.declare_parameter('downsample_num', 1081)
+        self.declare_parameter('input_dim', 181)
+        self.declare_parameter('output_dim', 2)
 
-        # Load parameters
+        # パラメータ読み込み
         self.load_parameters()
 
-        # Load model to device
-        self.model = self.load_model(self.model_path)
+        # モデルのロード
+        self.model = self.load_and_prepare_model()
 
-        # Register dynamic param callback
+        # パラメータ変更時のコールバック登録
         self.add_on_set_parameters_callback(self.on_param_change)
 
         # ROS I/O
-        self.subscription = self.create_subscription(
-            LaserScan,
-            '/scan',
-            self.scan_callback,
-            10)
+        self.subscription = self.create_subscription(LaserScan, '/scan', self.scan_callback, 10)
+        self.publisher = self.create_publisher(AckermannDrive, '/drive', 10)
 
-        self.publisher = self.create_publisher(
-            AckermannDrive,
-            '/cmd_drive',
-            10)
-
-        self.get_logger().info(
-            f"[STARTED] model: {self.model_path}, downsample_num: {self.downsample_num}, max_range: {self.max_range}"
-        )
+        self.get_logger().info(f"[STARTED] Node is ready. Model: {self.model_name}")
 
     def load_parameters(self):
+        self.model_name = self.get_parameter('model_name').get_parameter_value().string_value
         self.model_path = self.get_parameter('model_path').get_parameter_value().string_value
         self.max_range = self.get_parameter('max_range').get_parameter_value().double_value
-        self.downsample_num = self.get_parameter('downsample_num').get_parameter_value().integer_value
+        self.input_dim = self.get_parameter('input_dim').get_parameter_value().integer_value
+        self.output_dim = self.get_parameter('output_dim').get_parameter_value().integer_value
+
+    def load_and_prepare_model(self):
+        """モデルをインスタンス化し、学習済み重みをロードする"""
+        try:
+            self.get_logger().info(
+                f"Loading model '{self.model_name}' with input_dim={self.input_dim}, output_dim={self.output_dim}"
+            )
+            # ファクトリ関数でモデルをインスタンス化
+            model = load_cnn_model(
+                model_name=self.model_name,
+                input_dim=self.input_dim,
+                output_dim=self.output_dim
+            )
+            
+            if not os.path.exists(self.model_path):
+                self.get_logger().warn(f"Model weight file not found: {self.model_path}. Using initial weights.")
+            else:
+                state_dict = torch.load(self.model_path, map_location=self.device)
+                model.load_state_dict(state_dict)
+                self.get_logger().info(f"Loaded weights from {self.model_path}")
+
+            model.eval()
+            model.to(self.device)
+            return model
+        except Exception as e:
+            self.get_logger().error(f"Failed to load model: {e}")
+            return None
 
     def on_param_change(self, params):
-        success = True
-        reason = ""
-
+        """パラメータの動的変更をハンドルし、必要ならモデルをリロード"""
+        # パラメータを一度すべて更新
         for param in params:
-            if param.name == 'model_path':
-                try:
-                    self.model = self.load_model(param.value)
-                    self.model_path = param.value
-                    self.get_logger().info(f"[RELOADED] Model from {param.value}")
-                except Exception as e:
-                    success = False
-                    reason += f" Model reload failed: {e}"
-            elif param.name == 'max_range':
-                self.max_range = param.value
-                self.get_logger().info(f"[UPDATED] max_range: {self.max_range}")
-            elif param.name == 'downsample_num':
-                self.downsample_num = param.value
-                self.get_logger().info(f"[UPDATED] downsample_num: {self.downsample_num}")
-
-        return SetParametersResult(successful=success, reason=reason)
-
-    def load_model(self, path):
-        if not os.path.exists(path):
-            raise FileNotFoundError(f"Model file not found: {path}")
+            if hasattr(self, param.name):
+                setattr(self, param.name, param.value)
         
-        model = TinyLidarNet(input_length=self.downsample_num)  # ここはユーザーのCNNアーキテクチャに合わせて変更
-        state_dict = torch.load(path, map_location=self.device)
-        model.load_state_dict(state_dict)
-        model.eval()
-        model.to(self.device)
-        return model
+        # モデル構造に関わるパラメータが変更されたらリロード
+        reload_needed = any(p.name in ['model_name', 'input_dim', 'output_dim', 'model_path'] for p in params)
+        if reload_needed:
+            self.model = self.load_and_prepare_model()
+            if self.model is None:
+                return SetParametersResult(successful=False, reason="Model reload failed.")
 
+        return SetParametersResult(successful=True)
+        
     def scan_callback(self, msg):
+        if self.model is None:
+            self.get_logger().warn("Model is not loaded, skipping inference.", throttle_skip_first=True, throttle_time_sec=5.0)
+            return
+            
+        # ... (データ前処理と指令値のパブリッシュは変更なし) ...
         full_ranges = np.array(msg.ranges, dtype=np.float32)
         full_ranges = np.nan_to_num(full_ranges, nan=self.max_range, posinf=self.max_range)
-
         num_beams = len(full_ranges)
-        if self.downsample_num > num_beams:
-            self.get_logger().warn("downsample_num > number of beams in scan.")
+        if self.input_dim > num_beams:
+            self.get_logger().warn(f"input_dim({self.input_dim}) > num_beams({num_beams}).", throttle_skip_first=True, throttle_time_sec=5.0)
             return
-
-        indices = np.linspace(0, num_beams - 1, self.downsample_num).astype(int)
+        indices = np.linspace(0, num_beams - 1, self.input_dim).astype(int)
         sampled_ranges = full_ranges[indices]
-
         sampled_ranges = np.clip(sampled_ranges, 0.0, self.max_range) / self.max_range
         scan_tensor = torch.tensor(sampled_ranges, dtype=torch.float32).unsqueeze(0).to(self.device)
-
         try:
             with torch.no_grad():
                 output = self.model(scan_tensor)
@@ -108,15 +112,10 @@ class CNNNode(Node):
         except Exception as e:
             self.get_logger().error(f"Inference failed: {e}")
             return
-
-        steer = float(np.clip(steer, -1.0, 1.0))
-        throttle = float(np.clip(throttle, -1.0, 1.0))
-
         drive_msg = AckermannDrive()
-        drive_msg.steering_angle = steer
-        drive_msg.speed = throttle
+        drive_msg.steering_angle = float(steer)
+        drive_msg.speed = float(throttle)
         self.publisher.publish(drive_msg)
-
 
 def main(args=None):
     rclpy.init(args=args)
