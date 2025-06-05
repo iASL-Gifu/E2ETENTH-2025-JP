@@ -9,7 +9,7 @@ from src.models.models import load_cnn_model
 from src.data.dataset.lidar_dataset import LidarSeqDataset
 from src.data.dataset.transform import E2ESeqTransform
 
-@hydra.main(version_base=None, config_path="config", config_name="train_cnn")
+@hydra.main(config_path="config", config_name="train_cnn", version_base="1.2")
 def main(cfg: DictConfig) -> None:
     """
     Hydraによって設定ファイルを読み込み、モデルの学習を行うメイン関数。
@@ -31,7 +31,7 @@ def main(cfg: DictConfig) -> None:
     patience_counter = 0
     top_k = 3
     top_k_checkpoints = [] 
-    save_path = "checkpoints"
+    save_path = cfg.ckpt_path
     os.makedirs(save_path, exist_ok=True)
     data_path = hydra.utils.to_absolute_path(cfg.data_path)
     transform = E2ESeqTransform(range_max=range_max, base_num=1081, downsample_num=downsample_scan_num)
