@@ -73,6 +73,9 @@ class TinyLidarLstmNet(nn.Module):
         self.fc4 = nn.Linear(10, output_dim)
 
     def forward(self, x):
+        if x.dim() == 2:
+            x = x.unsqueeze(1)
+            
         batch_size, seq_len, length = x.shape
         
         # --- CNN Feature Extraction (共通部分) ---
