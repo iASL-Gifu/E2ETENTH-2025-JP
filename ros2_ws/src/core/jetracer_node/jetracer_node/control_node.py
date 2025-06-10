@@ -14,9 +14,13 @@ class JetRacerDriver(Node):
         # パラメータ宣言（YAML設定ファイル対応）
         self.declare_parameter('throttle_inversion', False) # スロットル反転フラグ
         self.declare_parameter('steering_inversion', False) # ステアリング反転フラグ
-        self.declare_parameter('steering_offset', 0.0)
-        self.declare_parameter('throttle_offset', 0.0)
-        self.declare_parameter('offset_step', 0.01)  # 増減量をパラメータに
+        self.declare_parameter('steering_offset', 0.0)      # ステアリングのオフセット
+        self.declare_parameter('throttle_offset', 0.0)      # スロットルのオフセット
+        self.declare_parameter('offset_step', 0.01)         # オフセットの増減量
+        
+        ### 変更点：ゲイン（比率）調整用のパラメータを追加 ###
+        self.declare_parameter('throttle_gain', 1.0)        # スロットルゲイン
+        self.declare_parameter('steering_gain', 1.0)        # ステアリングゲイン
 
         self.car = NvidiaRacecar()
         self.last_cmd_time = self.get_clock().now()
@@ -48,27 +52,30 @@ class JetRacerDriver(Node):
             return param.bool_value
         elif param_type == Parameter.Type.DOUBLE:
             return param.double_value
-        # 他の型が必要な場合はここに追加
-        return param.double_value # デフォルトはdouble
+        
+        return param.double_value 
 
     def _set_param(self, name: str, value: float):
         self.set_parameters([Parameter(name, Parameter.Type.DOUBLE, value)])
         self.get_logger().info(f'{name} updated to: {value:.3f}')
 
     def _cmd_cb(self, msg: AckermannDrive):
+        # パラメータを取得
         steering_offset = self._get_param('steering_offset')
         throttle_offset = self._get_param('throttle_offset')
         throttle_inversion = self._get_param('throttle_inversion', Parameter.Type.BOOL)
         steering_inversion = self._get_param('steering_inversion', Parameter.Type.BOOL)
+        throttle_gain = self._get_param('throttle_gain')
+        steering_gain = self._get_param('steering_gain')
 
         # スロットル計算
-        throttle = msg.speed + throttle_offset
+        throttle = (msg.speed * throttle_gain) + throttle_offset
         if throttle_inversion:
             throttle *= -1.0
         throttle = max(min(throttle, 1.0), -1.0) # -1.0 から 1.0 の範囲にクリッピング
 
         # ステアリング計算
-        steering = msg.steering_angle + steering_offset
+        steering = (msg.steering_angle * steering_gain) + steering_offset
         if steering_inversion:
             steering *= -1.0
         steering = max(min(steering, 1.0), -1.0) # -1.0 から 1.0 の範囲にクリッピング
@@ -81,7 +88,7 @@ class JetRacerDriver(Node):
         # 1秒以上コマンドが来ていなければスロットルとステアリングを0にする
         if (self.get_clock().now() - self.last_cmd_time).nanoseconds > 1e9: # 1秒 = 1e9ナノ秒
             self.car.throttle = 0.0
-            self.car.steering = 0.0 # steering も0に戻すのが安全でしょう
+            self.car.steering = 0.0 
 
     # --- 動的調整コールバック ---
     def _steer_offset_inc_cb(self, msg: Bool):
