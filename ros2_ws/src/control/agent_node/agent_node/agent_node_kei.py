@@ -223,6 +223,15 @@ class AgentNode(Node):
             frames.append(frames[-1] if frames else np.array([]))
         
         return frames
+    
+    def convert_action(action, steer_range: float=1.0, speed_range: float=1.0):
+    
+        steer = action[0] * steer_range
+        speed = (action[1] + 1) / 2 * speed_range
+        speed = min(speed, speed_range)
+        action = [steer, speed]
+        print(action)
+        return action
 
     def _downsample(self, frame):
         """単一フレームのダウンサンプリング"""
@@ -268,16 +277,15 @@ class AgentNode(Node):
             indices = np.linspace(0, num_beams - 1, self.downsample_num).astype(int)
             sampled_ranges = full_ranges[indices]
 
-        sampled_ranges = np.clip(sampled_ranges, 0.0, self.max_range) / self.max_range
-        scan_tensor = torch.tensor(sampled_ranges, dtype=torch.float32).unsqueeze(0).to(self.device)
-
         try:
             with torch.no_grad():
                 # SACモデルの決定論的推論：sample()の第3戻り値（平均アクション）を使用
-                _, _, action = self.model.sample(scan_tensor)
-                steer, throttle = action.tolist()[0]
-                # SACモデルの出力は既にtanhが適用済みなので、スロットルを0-1範囲に変換
-                throttle = (throttle + 1.0) / 2.0
+                _, _, action = self.model.sample(sampled_ranges)
+                
+                cv_action = self.convert_action(action,)
+
+                steer = cv_action[0]
+                throttle = cv_action[1]
         except Exception as e:
             self.get_logger().error(f"Inference failed: {e}")
             return
