@@ -30,6 +30,7 @@ setup(
         'console_scripts': [
             # 実行可能スクリプトを定義
             'agent_node = agent_node.agent_node:main',
+            'agent_node_kei = agent_node.agent_node_kei:main'
         ],
     },
 )

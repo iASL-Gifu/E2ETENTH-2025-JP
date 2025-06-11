@@ -1,0 +1,11 @@
+/**:
+  ros__parameters:
+    downsample_num: 100
+    ckpt_path: ../ckpts/best_model_reward_658.10.pth
+    state_dim: 1080
+    action_dim: 2
+    hidden_dim: 256
+    output_steering_gain: 1.0
+    output_throttle_gain: 1.0
+    use_adaptive_downsampling: true
+    scan_window_size: 1
