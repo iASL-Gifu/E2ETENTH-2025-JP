@@ -4,15 +4,16 @@ import os
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
-# 外部ファイルのimport (パスが通っている必要があります)
-from src.models.models import load_cnn_model  
-from src.data.dataset.lidar_dataset import LidarSeqDataset
-from src.data.dataset.transform import E2ESeqTransform
+# 外部ファイルのimportを新しいものに更新
+from src.models.models import load_cnn_model # ご自身のモデル読み込み関数に置き換えてください
+from src.data.dataset.lidar_dataset import LidarSeqToSeqDataset
+from src.data.dataset.transform import SeqToSeqTransform
 
 @hydra.main(config_path="config", config_name="train_cnn", version_base="1.2")
 def main(cfg: DictConfig) -> None:
     """
     Hydraによって設定ファイルを読み込み、モデルの学習を行うメイン関数。
+    prev_actionの使用有無や、モデルの出力形式に柔軟に対応する。
     """
     print("--- Configuration ---")
     print(OmegaConf.to_yaml(cfg))
@@ -20,58 +21,77 @@ def main(cfg: DictConfig) -> None:
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
-    # ... (ハイパーパラメータやデータローダーの設定は変更なし) ...
-    sequence_length = cfg.sequence_length
-    downsample_scan_num = cfg.input_dim
-    range_max = cfg.range_max
-    batch_size = cfg.batch_size
-    num_epochs = cfg.num_epochs
-    lr = cfg.lr
-    early_stop_epochs = cfg.early_stop_epochs
-    patience_counter = 0
-    top_k = 3
-    top_k_checkpoints = [] 
+    # --- データセットとデータローダーの準備 ---
+    # 新しいTransformとDatasetを使用
+    transform = SeqToSeqTransform(
+        range_max=cfg.range_max, 
+        base_num=1081, # Lidarの元の点群数に合わせて調整
+        downsample_num=cfg.input_dim
+    )
+    # to_absolute_pathで絶対パスに変換
+    data_path = hydra.utils.to_absolute_path(cfg.data_path)
+    train_dataset = LidarSeqToSeqDataset(
+        root_dir=data_path, 
+        sequence_length=cfg.sequence_length, 
+        transform=transform
+    )
+    train_loader = DataLoader(train_dataset, batch_size=cfg.batch_size, shuffle=True)
+
+    # --- モデル、損失関数、最適化手法の準備 ---
+    # モデル名は設定ファイルから取得
+    model = load_cnn_model(
+        model_name=cfg.model_name, 
+        input_dim=cfg.input_dim, 
+        output_dim=cfg.output_dim
+    ).to(device)
+    criterion = torch.nn.SmoothL1Loss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
+
+    # --- チェックポイントと早期終了の準備 (変更なし) ---
     save_path = cfg.ckpt_path
     os.makedirs(save_path, exist_ok=True)
-    data_path = hydra.utils.to_absolute_path(cfg.data_path)
-    transform = E2ESeqTransform(range_max=range_max, base_num=1081, downsample_num=downsample_scan_num)
-    train_dataset = LidarSeqDataset(root_dir=data_path, sequence_length=sequence_length, transform=transform)
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    model = load_cnn_model(model_name=cfg.model_name, input_dim=cfg.input_dim, output_dim=cfg.output_dim).to(device)
-    criterion = torch.nn.SmoothL1Loss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+
+    early_stop_epochs = cfg.early_stop_epochs
+    patience_counter = 0
+    
+    top_k = 3
+    top_k_checkpoints = [] 
 
     # -------------------
     # 学習ループ
     # -------------------
-    for epoch in range(num_epochs):
+    print(f"\n--- Start Training: {cfg.model_name} ---")
+    for epoch in range(cfg.num_epochs):
         model.train()
         running_loss = 0.0
 
         for batch in train_loader:
+            # 必要なデータをすべてデバイスに送る
             scan_seq = batch['scan_seq'].to(device)
-            
-            # まずモデルの出力を得る
-            output = model(scan_seq)
-            # モデルの出力テンソルの次元数に応じてターゲットの形状を変える
-            if output.dim() == 3:
-                # --- 出力が3次元 (B, T, F) の場合: 時系列モデルと判断 ---
-                target_steer = batch['steer_seq']
-                target_speed = batch['speed_seq']
-                target = torch.stack([target_steer, target_speed], dim=2).to(device)
-            
-            elif output.dim() == 2:
-                # --- 出力が2次元 (B, F) の場合: 非時系列モデルと判断 ---
-                target_steer = batch['steer_seq'][:, -1]
-                target_speed = batch['speed_seq'][:, -1]
-                target = torch.stack([target_steer, target_speed], dim=1).to(device)
+            prev_action_seq = batch['prev_action_seq'].to(device)
+            target_seq = batch['target_action_seq'].to(device)
 
+            # --- モデルへの入力を動的に切り替え ---
+            if cfg.model_use_prev_action:
+                # prev_action を使うモデルの場合
+                output = model(scan_seq, prev_action_seq)
             else:
-                # 想定外の形状の場合はエラーを出す
+                # prev_action を使わないモデルの場合 (LiDARシーケンスのみ入力)
+                output = model(scan_seq)
+
+            # --- モデルの出力形状に合わせて教師データの形状を整形 ---
+            if output.dim() == 3 and output.shape[1] > 1:
+                # 出力が時系列 [B, SeqLen, F] の場合 -> 教師データも時系列に
+                target = target_seq
+            elif output.dim() == 2:
+                # 出力が非時系列 [B, F] の場合 -> 教師データはシーケンスの最後のフレーム
+                target = target_seq[:, -1, :]
+            else:
+                # その他の想定外の形状
                 raise ValueError(f"Unsupported output shape: {output.shape}")
 
+            # 損失計算と逆伝播
             loss = criterion(output, target)
-
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -79,7 +99,7 @@ def main(cfg: DictConfig) -> None:
             running_loss += loss.item()
 
         avg_loss = running_loss / len(train_loader)
-        print(f"[Epoch {epoch+1}/{num_epochs}] Loss: {avg_loss:.4f}")
+        print(f"[Epoch {epoch+1}/{cfg.num_epochs}] Loss: {avg_loss:.4f}")
 
         if len(top_k_checkpoints) < top_k or avg_loss < top_k_checkpoints[-1][0]:
             checkpoint_path = os.path.join(save_path, f'model_epoch_{epoch+1}_loss_{avg_loss:.4f}.pth')
