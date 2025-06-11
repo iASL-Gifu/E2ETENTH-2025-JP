@@ -7,7 +7,7 @@
         <arg name="enable_infra2" value="false" />
         <arg name="enable_gyro" value="false" />
         <arg name="enable_accel" value="false" />
-        <arg name="color_module.profile" value="848x480x30" />
+        <arg name="rgb_camera.profile" value="640x480x30" />
         
     </include>
 
