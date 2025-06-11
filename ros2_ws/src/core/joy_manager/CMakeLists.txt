@@ -9,8 +9,14 @@ find_package(ackermann_msgs REQUIRED)
 
 add_executable(joy_manager_node src/joy_manager_node.cpp)
 ament_target_dependencies(joy_manager_node rclcpp std_msgs sensor_msgs ackermann_msgs)
-
 install(TARGETS joy_manager_node
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+
+add_executable(advanced_joy_node src/advanced_joy_node.cpp)
+ament_target_dependencies(advanced_joy_node rclcpp std_msgs sensor_msgs ackermann_msgs)
+install(TARGETS advanced_joy_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
