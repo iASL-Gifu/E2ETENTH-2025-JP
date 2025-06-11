@@ -126,7 +126,7 @@ class AgentNode(Node):
         if not os.path.exists(path):
             raise FileNotFoundError(f"Model file not found: {path}")
         
-        model = Actor(lidar_dim=lidar_dim,
+        model = Actor(lidar_dim=self.downsample_num,
                       action_dim=action_dim,
                       hidden_dim=hidden_dim)
         checkpoint = torch.load(path, map_location=self.device)
