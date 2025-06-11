@@ -72,7 +72,7 @@ def main(cfg: DictConfig) -> None:
             target_seq = batch['target_action_seq'].to(device)
 
             # --- モデルへの入力を動的に切り替え ---
-            if cfg.model.use_prev_action:
+            if cfg.model_use_prev_action:
                 # prev_action を使うモデルの場合
                 output = model(scan_seq, prev_action_seq)
             else:
