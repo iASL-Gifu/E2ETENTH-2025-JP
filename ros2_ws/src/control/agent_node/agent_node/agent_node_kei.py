@@ -277,10 +277,13 @@ class AgentNode(Node):
             indices = np.linspace(0, num_beams - 1, self.downsample_num).astype(int)
             sampled_ranges = full_ranges[indices]
 
+        # LiDARデータをPyTorchテンソルに変換
+        scan_tensor = torch.tensor(sampled_ranges, dtype=torch.float32).unsqueeze(0).to(self.device)
+
         try:
             with torch.no_grad():
                 # SACモデルの決定論的推論：sample()の第3戻り値（平均アクション）を使用
-                _, _, action = self.model.sample(sampled_ranges)
+                _, _, action = self.model.sample(scan_tensor)
                 
                 cv_action = self.convert_action(action,)
 
@@ -302,7 +305,6 @@ class AgentNode(Node):
         drive_msg.steering_angle = steer
         drive_msg.speed = throttle
         self.publisher.publish(drive_msg)
-
 
 def main(args=None):
     rclpy.init(args=args)
