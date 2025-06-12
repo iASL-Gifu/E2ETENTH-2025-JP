@@ -1,4 +1,4 @@
-from .cnn import TinyLidarNet, TinyLidarLstmNet
+from .cnn import TinyLidarNet, TinyLidarLstmNet, TinyLidarConvLstmNet, TinyLidarActionLstmNet, TinyLidarActionConvLstmNet
 from .gnn import LidarGCN, LidarGAT, LidarGcnLstmNet, LidarGatLstmNet
 def load_cnn_model(model_name, input_dim, output_dim):
 
@@ -6,9 +6,16 @@ def load_cnn_model(model_name, input_dim, output_dim):
         return TinyLidarNet(input_dim, output_dim)
     elif model_name == 'TinyLidarLstmNet':
         return TinyLidarLstmNet(input_dim, output_dim, lstm_hidden_dim=128, lstm_layers=1)
+    elif model_name == 'TinyLidarConvLstmNet':
+        return TinyLidarConvLstmNet(input_dim, output_dim, lstm_hidden_dim=128, lstm_layers=1)
+    elif model_name == 'TinyLidarActionLstmNet':
+        return TinyLidarActionLstmNet(input_dim, output_dim, lstm_hidden_dim=128, lstm_layers=1)
+    elif model_name == 'TinyLidarActionConvLstmNet':
+        return TinyLidarActionConvLstmNet(input_dim, output_dim, lstm_hidden_dim=128, lstm_layers=1)
+    
     else:
         raise ValueError(f"Unknown model name: {model_name}")
-    
+
 def load_gnn_model(model_name, input_dim, hidden_dim, output_dim, pool_method='mean'):
 
     if model_name == 'LidarGCN':
