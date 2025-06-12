@@ -126,6 +126,7 @@ class CNNNode(Node):
             self.get_logger().warn("Model is not loaded, skipping inference.", throttle_skip_first=True, throttle_time_sec=5.0)
             return
             
+        # --- 1. LiDARデータを準備 ---
         full_ranges = np.array(msg.ranges, dtype=np.float32)
         full_ranges = np.nan_to_num(full_ranges, nan=self.max_range, posinf=self.max_range)
         num_beams = len(full_ranges)
@@ -135,16 +136,27 @@ class CNNNode(Node):
         indices = np.linspace(0, num_beams - 1, self.input_dim).astype(int)
         sampled_ranges = full_ranges[indices]
         sampled_ranges = np.clip(sampled_ranges, 0.0, self.max_range) / self.max_range
-        scan_tensor = torch.tensor(sampled_ranges, dtype=torch.float32).unsqueeze(0).to(self.device)
         
+        # --- 2. 推論の実行 ---
         try:
             with torch.no_grad():
+                # --- 基本となる2Dテンソルを準備 ---
+                # scan_tensor: [1, 181] (B, L)
+                scan_tensor = torch.tensor(sampled_ranges, dtype=torch.float32).unsqueeze(0).to(self.device)
+                
                 prev_action_tensor = None
                 if self.use_prev_action:
+                    # prev_action_tensor: [1, 2] (B, A)
                     prev_action_tensor = torch.tensor(self.prev_action, dtype=torch.float32).unsqueeze(0).to(self.device)
 
                 output = None
+                
+                # --- 3. モデルのタイプに応じて形状を調整し、推論 ---
                 if self.is_rnn:
+                    # === RNN (LSTM/ConvLSTM) モデルの場合 ===
+                    # モデルが要求する3D形状 (B, T, L) と (B, T, A) に変形する (T=1)
+                    scan_tensor_rnn = scan_tensor.unsqueeze(1) # [1, 1, 181]
+                    
                     if self.hidden_state is not None:
                         if isinstance(self.hidden_state, tuple):
                             self.hidden_state = tuple(h.detach() for h in self.hidden_state)
@@ -152,28 +164,39 @@ class CNNNode(Node):
                             self.hidden_state = self.hidden_state.detach()
                     
                     if self.use_prev_action:
-                        output, self.hidden_state = self.model(scan_tensor, prev_action_tensor, self.hidden_state)
+                        # prev_actionもシーケンス次元を追加
+                        prev_action_tensor_rnn = prev_action_tensor.unsqueeze(1) # [1, 1, 2]
+                        output, self.hidden_state = self.model(scan_tensor_rnn, prev_action_tensor_rnn, self.hidden_state)
                     else:
-                        output, self.hidden_state = self.model(scan_tensor, self.hidden_state)
+                        output, self.hidden_state = self.model(scan_tensor_rnn, self.hidden_state)
                 else:
+                    # === 非RNN (CNN) モデルの場合 ===
+                    # Conv1dが期待する3D形状 (B, C, L) に変形する (C=1)
+                    scan_tensor_cnn = scan_tensor.unsqueeze(1) # [1, 1, 181]
+                    
                     if self.use_prev_action:
-                        output = self.model(scan_tensor, prev_action_tensor)
+                        # prev_actionは特徴量ベクトルとして2Dのまま渡す
+                        output = self.model(scan_tensor_cnn, prev_action_tensor)
                     else:
-                        output = self.model(scan_tensor)
+                        output = self.model(scan_tensor_cnn)
                 
+                # --- 4. 結果の処理 ---
                 self.prev_action = output[0].cpu().numpy()
                 steer, throttle = self.prev_action.tolist()
 
         except Exception as e:
-            self.get_logger().error(f"Inference failed: {e}")
+            self.get_logger().error(f"Inference failed: {e}", throttle_skip_first=True, throttle_time_sec=5.0)
+            # エラー発生時は状態をリセット
             self.hidden_state = None
-            self.prev_action.fill(0)
+            if self.prev_action is not None:
+                self.prev_action.fill(0)
             return
             
         drive_msg = AckermannDrive()
         drive_msg.steering_angle = float(steer)
         drive_msg.speed = float(throttle)
         self.publisher.publish(drive_msg)
+
 
 def main(args=None):
     rclpy.init(args=args)
