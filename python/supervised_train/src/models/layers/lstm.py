@@ -92,11 +92,8 @@ class ConvLSTM1dLayer(nn.Module):
         """
         batch_size, seq_len, _, _ = x.shape
         
-        # 初期の隠れ状態とセル状態
-        if h_and_c_initial is None:
-            h, c = None, None
-        else:
-            h, c = h_and_c_initial
+        # 初期の隠れ状態とセル状態のタプルをそのまま使う
+        h_c = h_and_c_initial
 
         # 各タイムステップの隠れ状態を保存するリスト
         outputs = []
@@ -105,10 +102,12 @@ class ConvLSTM1dLayer(nn.Module):
         for t in range(seq_len):
             # x_t の形状: (Batch, Channels, Length)
             x_t = x[:, t, :, :]
-            h, c = self.cell(x_t, (h, c))
-            outputs.append(h)
+            # h_c が None であれば、そのまま None が渡される
+            h_c = self.cell(x_t, h_c)
+            # h_c は (h, c) のタプルなので、h を取り出して保存
+            outputs.append(h_c[0])
 
         # (SeqLen, Batch, Channels, Length) -> (Batch, SeqLen, Channels, Length)
         all_hidden_states = torch.stack(outputs, dim=1)
         
-        return all_hidden_states, (h, c)
+        return all_hidden_states, h_c
