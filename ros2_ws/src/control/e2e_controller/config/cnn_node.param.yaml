@@ -5,7 +5,6 @@
 ## TinyLidarActionLstmNet, TinyLidarActionConvLstmNet
 
     model_name: TinyLidarNet
-    is_rnn: false
     model_path: .pt
     max_range: 30.0
     input_dim: 1081
