@@ -32,8 +32,14 @@
     <include file="$(find-pkg-share jetracer_node)/launch/jetracer.launch.xml">
     </include>
 
-    <!-- joy manager -->
-    <include file="$(find-pkg-share joy_manager)/launch/teleop.launch.xml">
-    </include>
+
+    <arg name="advance" default="false" description="if use advanced joy node"/>
+    <group unless="$(var advance)">
+        <include file="$(find-pkg-share joy_manager)/launch/teleop.launch.xml" />
+    </group>
+
+    <group if="$(var advance)">
+        <include file="$(find-pkg-share joy_manager)/launch/advanced_teleop.launch.xml" />
+    </group>
     
 </launch>

@@ -1,0 +1,35 @@
+/**:
+  ros__parameters:
+    # --- 基本設定 ---
+    timer_hz: 40.0 # スムーズな制御のため、以前のコードと同じ50.0を推奨します
+
+    # --- ボタン・軸の割り当て ---
+    joy_enable_button: 4      # L1
+    throttle_button: 1        # ◯
+    steer_gain_button: 5      # R1
+    steer_axis: 0             # 左スティックの横軸
+    start_button: 7           # R2
+    stop_button: 6            # L2
+
+    # --- スロットル（アクセル）関連 ---
+    max_throttle: 1.0
+    throttle_decrease_rate: 0.1
+    throttle_curve_factor: 0.8
+
+    # --- ステアリング関連 ---
+    base_steer_scale: 0.5
+    high_gain_steer_scale: 1.0
+## button index (DualShock4) foxy
+# 0: ×
+# 1: ○
+# 2: △
+# 3: □
+# 4: L1
+# 5: R1
+# 6: L2
+# 7: R2
+# 8: share
+# 9: option
+# 10: home
+# 11: L3
+# 12: R3
