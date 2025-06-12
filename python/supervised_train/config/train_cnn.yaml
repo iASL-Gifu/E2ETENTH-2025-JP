@@ -19,7 +19,6 @@ data_path: "./datasets/num_1" # path to the dataset
 model_name: TinyLidarNet 
 input_dim: 1081 
 output_dim: 2
-model_use_prev_action: false
 
 hydra:
   run:

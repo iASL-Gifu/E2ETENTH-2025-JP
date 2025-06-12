@@ -47,6 +47,9 @@ def main(cfg: DictConfig) -> None:
     criterion = torch.nn.SmoothL1Loss()
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
 
+    is_rnn = "Lstm" in cfg.model_name
+    is_use_prev_action = "Action" in cfg.model_name
+
     # --- チェックポイントと早期終了の準備 (変更なし) ---
     save_path = cfg.ckpt_path
     os.makedirs(save_path, exist_ok=True)
@@ -72,26 +75,36 @@ def main(cfg: DictConfig) -> None:
             target_seq = batch['target_action_seq'].to(device)
 
             # --- モデルへの入力を動的に切り替え ---
-            if cfg.model_use_prev_action:
-                # prev_action を使うモデルの場合
-                output = model(scan_seq, prev_action_seq)
+            ## RNNの場合
+            if is_rnn:
+                prev_hidden_state = None
+
+                if is_use_prev_action:
+                    action, hidden_state = model(scan_seq, pre_action=prev_action_seq, hidden=prev_hidden_state)
+                else:
+                    action, hidden_state = model(scan_seq, hidden=prev_hidden_state)
+            ## RNN以外の場合
             else:
-                # prev_action を使わないモデルの場合 (LiDARシーケンスのみ入力)
-                output = model(scan_seq)
+                if is_use_prev_action:
+                    # prev_action を使うモデルの場合
+                    action = model(scan_seq, prev_action_seq)
+                else:
+                    # prev_action を使わないモデルの場合 (LiDARシーケンスのみ入力)
+                    action = model(scan_seq)
 
             # --- モデルの出力形状に合わせて教師データの形状を整形 ---
-            if output.dim() == 3 and output.shape[1] > 1:
+            if action.dim() == 3 and action.shape[1] > 1:
                 # 出力が時系列 [B, SeqLen, F] の場合 -> 教師データも時系列に
                 target = target_seq
-            elif output.dim() == 2:
+            elif action.dim() == 2:
                 # 出力が非時系列 [B, F] の場合 -> 教師データはシーケンスの最後のフレーム
                 target = target_seq[:, -1, :]
             else:
                 # その他の想定外の形状
-                raise ValueError(f"Unsupported output shape: {output.shape}")
+                raise ValueError(f"Unsupported output shape: {action.shape}")
 
             # 損失計算と逆伝播
-            loss = criterion(output, target)
+            loss = criterion(action, target)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()

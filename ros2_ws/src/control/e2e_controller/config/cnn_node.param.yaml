@@ -1,6 +1,10 @@
 /**:
   ros__parameters:
-    model_name: TinyLidarNet ## TinyLidarNet or TinyLidarLstmNet
+## TinyLidarNet 
+## TinyLidarLstmNet, TinyLidarConvLstmNet
+## TinyLidarActionLstmNet, TinyLidarActionConvLstmNet
+
+    model_name: TinyLidarNet
     is_rnn: false
     model_path: .pt
     max_range: 30.0
