@@ -182,7 +182,7 @@ class TinyLidarActionLstmNet(nn.Module):
     """
     LiDARスキャンと前のアクションを入力とするモデル
     """
-    def __init__(self, input_dim, output_dim, action_dim, lstm_hidden_dim=128, lstm_layers=1):
+    def __init__(self, input_dim, output_dim, action_dim=2, lstm_hidden_dim=128, lstm_layers=1):
         super().__init__()
         # --- (変更点) actionの次元を保持 ---
         self.action_dim = action_dim
@@ -263,7 +263,7 @@ class TinyLidarActionConvLstmNet(nn.Module):
     """
     LiDARスキャンと前のアクションを入力とし、ConvLSTMを使用するモデル。
     """
-    def __init__(self, input_dim, output_dim, action_dim, dws_conv_kernel_size=5):
+    def __init__(self, input_dim, output_dim, action_dim=2, dws_conv_kernel_size=5):
         super().__init__()
         # --- actionの次元を保持 ---
         self.action_dim = action_dim
