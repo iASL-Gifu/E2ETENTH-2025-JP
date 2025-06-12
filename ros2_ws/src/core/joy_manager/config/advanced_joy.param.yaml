@@ -1,24 +1,36 @@
 /**:
   ros__parameters:
     # --- 基本設定 ---
-    timer_hz: 40.0 # スムーズな制御のため、以前のコードと同じ50.0を推奨します
+    timer_hz: 40.0
 
-    # --- ボタン・軸の割り当て ---
+    # --- ボタン・軸の割り当て (DualShock4を想定) ---
+    # 手動操縦を有効にするデッドマンボタン
     joy_enable_button: 4      # L1
-    throttle_button: 1        # ◯
+    # 押している間、ステアリングを高ゲインにするボタン
     steer_gain_button: 5      # R1
-    steer_axis: 0             # 左スティックの横軸
-    start_button: 7           # R2
-    stop_button: 6            # L2
+    # 自動操縦モードに切り替えるボタン
+    autonomy_button:   3      # □
+    
+    # rosbag録画の開始ボタン
+    start_button:      9      # option
+    # rosbag録画の停止ボタン
+    stop_button:       8      # share
 
-    # --- スロットル（アクセル）関連 ---
-    max_throttle: 1.0
-    throttle_decrease_rate: 0.1
-    throttle_curve_factor: 0.8
+    # 速度の入力軸
+    speed_axis: 1             # 左スティックの上下
+    # ステアリングの入力軸
+    steer_axis: 3             # 右スティックの左右
 
-    # --- ステアリング関連 ---
-    base_steer_scale: 0.5
-    high_gain_steer_scale: 1.0
+    # --- スケール関連パラメータ ---
+    # 速度の基本スケール（D-pad上下で走行中に変更可能）
+    speed_scale: 1.0
+    # 通常時のステアリングスケール（D-pad左右で走行中に変更可能）
+    base_steer_scale: 0.3
+    # 高ゲインボタン(R1)押下時のステアリングスケール
+    high_gain_steer_scale: 7
+    # D-padでスケールを変更する際のステップ幅
+    scale_increment: 0.05
+
 ## button index (DualShock4) foxy
 # 0: ×
 # 1: ○
