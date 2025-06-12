@@ -27,7 +27,7 @@
     # 通常時のステアリングスケール（D-pad左右で走行中に変更可能）
     base_steer_scale: 0.3
     # 高ゲインボタン(R1)押下時のステアリングスケール
-    high_gain_steer_scale: 7
+    high_gain_steer_scale: 0.7
     # D-padでスケールを変更する際のステップ幅
     scale_increment: 0.05
 
