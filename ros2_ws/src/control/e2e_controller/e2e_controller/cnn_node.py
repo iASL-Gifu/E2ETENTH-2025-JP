@@ -7,8 +7,9 @@ import torch
 import numpy as np
 import os
 
-# ファクトリ関数をインポート
-from .models.models import load_cnn_model
+# ファクトリ関数をインポート (RNNモデルもロードできることを想定)
+### 変更 ###
+from .models.models import load_model 
 
 class CNNNode(Node):
     def __init__(self):
@@ -23,9 +24,13 @@ class CNNNode(Node):
         self.declare_parameter('max_range', 30.0)
         self.declare_parameter('input_dim', 181)
         self.declare_parameter('output_dim', 2)
+        self.declare_parameter('is_rnn', False)  
 
         # パラメータ読み込み
         self.load_parameters()
+
+        ### 追加: RNNの状態を保持する変数 ###
+        self.hidden_state = None
 
         # モデルのロード
         self.model = self.load_and_prepare_model()
@@ -37,7 +42,7 @@ class CNNNode(Node):
         self.subscription = self.create_subscription(LaserScan, '/scan', self.scan_callback, 10)
         self.publisher = self.create_publisher(AckermannDrive, '/cmd_drive', 10)
 
-        self.get_logger().info(f"[STARTED] Node is ready. Model: {self.model_name}")
+        self.get_logger().info(f"[STARTED] Node is ready. Model: {self.model_name}, IsRNN: {self.is_rnn}")
 
     def load_parameters(self):
         self.model_name = self.get_parameter('model_name').get_parameter_value().string_value
@@ -45,6 +50,7 @@ class CNNNode(Node):
         self.max_range = self.get_parameter('max_range').get_parameter_value().double_value
         self.input_dim = self.get_parameter('input_dim').get_parameter_value().integer_value
         self.output_dim = self.get_parameter('output_dim').get_parameter_value().integer_value
+        self.is_rnn = self.get_parameter('is_rnn').get_parameter_value().bool_value ### 追加 ###
 
     def load_and_prepare_model(self):
         """モデルをインスタンス化し、学習済み重みをロードする"""
@@ -53,7 +59,8 @@ class CNNNode(Node):
                 f"Loading model '{self.model_name}' with input_dim={self.input_dim}, output_dim={self.output_dim}"
             )
             # ファクトリ関数でモデルをインスタンス化
-            model = load_cnn_model(
+            ### 変更 ###
+            model = load_model(
                 model_name=self.model_name,
                 input_dim=self.input_dim,
                 output_dim=self.output_dim
@@ -68,6 +75,10 @@ class CNNNode(Node):
 
             model.eval()
             model.to(self.device)
+            
+            self.get_logger().info("Resetting RNN hidden state.")
+            self.hidden_state = None
+            
             return model
         except Exception as e:
             self.get_logger().error(f"Failed to load model: {e}")
@@ -81,11 +92,13 @@ class CNNNode(Node):
                 setattr(self, param.name, param.value)
         
         # モデル構造に関わるパラメータが変更されたらリロード
-        reload_needed = any(p.name in ['model_name', 'input_dim', 'output_dim', 'model_path'] for p in params)
+        reload_needed = any(p.name in ['model_name', 'input_dim', 'output_dim', 'model_path', 'is_rnn'] for p in params)
         if reload_needed:
+            self.get_logger().info("Model-related parameter changed. Reloading model...")
             self.model = self.load_and_prepare_model()
             if self.model is None:
                 return SetParametersResult(successful=False, reason="Model reload failed.")
+            self.get_logger().info(f"Model reloaded. New settings: Model: {self.model_name}, IsRNN: {self.is_rnn}")
 
         return SetParametersResult(successful=True)
         
@@ -94,6 +107,7 @@ class CNNNode(Node):
             self.get_logger().warn("Model is not loaded, skipping inference.", throttle_skip_first=True, throttle_time_sec=5.0)
             return
             
+        # --- データ前処理 (変更なし) ---
         full_ranges = np.array(msg.ranges, dtype=np.float32)
         full_ranges = np.nan_to_num(full_ranges, nan=self.max_range, posinf=self.max_range)
         num_beams = len(full_ranges)
@@ -104,31 +118,46 @@ class CNNNode(Node):
         sampled_ranges = full_ranges[indices]
         sampled_ranges = np.clip(sampled_ranges, 0.0, self.max_range) / self.max_range
         scan_tensor = torch.tensor(sampled_ranges, dtype=torch.float32).unsqueeze(0).to(self.device)
+        
         try:
             with torch.no_grad():
-                output = self.model(scan_tensor)
+                if self.is_rnn:
+                    # RNNモデルの場合: 状態を入力し、新しい状態を受け取る
+                    
+                    # 勾配計算の履歴が繋がらないように、前の状態をデタッチする
+                    if self.hidden_state is not None:
+                        self.hidden_state = (self.hidden_state[0].detach(), self.hidden_state[1].detach())
+                    
+                    # モデルに現在のスキャンデータと前の状態を渡す
+                    output, self.hidden_state = self.model(scan_tensor, self.hidden_state)
+                else:
+                    # 通常のCNNモデルの場合
+                    output = self.model(scan_tensor)
+                
                 steer, throttle = output[0].tolist()
+
         except Exception as e:
             self.get_logger().error(f"Inference failed: {e}")
             return
+            
         drive_msg = AckermannDrive()
         drive_msg.steering_angle = float(steer)
         drive_msg.speed = float(throttle)
         self.publisher.publish(drive_msg)
 
+# main関数は変更なし
 def main(args=None):
     rclpy.init(args=args)
     node = CNNNode()
     
     try:
         rclpy.spin(node)
-    except Exception:
-        pass
+    except KeyboardInterrupt:
+        node.get_logger().info("KeyboardInterrupt, shutting down.")
     finally:
         if rclpy.ok():
             node.destroy_node()
             rclpy.shutdown()
-
 
 if __name__ == '__main__':
     main()
