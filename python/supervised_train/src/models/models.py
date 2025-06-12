@@ -12,7 +12,6 @@ def load_cnn_model(model_name, input_dim, output_dim):
         return TinyLidarActionLstmNet(input_dim, output_dim, lstm_hidden_dim=128, lstm_layers=1)
     elif model_name == 'TinyLidarActionConvLstmNet':
         return TinyLidarActionConvLstmNet(input_dim, output_dim, lstm_hidden_dim=128, lstm_layers=1)
-    
     else:
         raise ValueError(f"Unknown model name: {model_name}")
 
