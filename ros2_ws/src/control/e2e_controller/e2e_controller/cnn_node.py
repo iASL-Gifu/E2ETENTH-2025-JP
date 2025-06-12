@@ -50,7 +50,7 @@ class CNNNode(Node):
         self.max_range = self.get_parameter('max_range').get_parameter_value().double_value
         self.input_dim = self.get_parameter('input_dim').get_parameter_value().integer_value
         self.output_dim = self.get_parameter('output_dim').get_parameter_value().integer_value
-        self.is_rnn = self.get_parameter('is_rnn').get_parameter_value().bool_value ### 追加 ###
+        self.is_rnn = self.get_parameter('is_rnn').get_parameter_value().bool_value 
 
     def load_and_prepare_model(self):
         """モデルをインスタンス化し、学習済み重みをロードする"""
