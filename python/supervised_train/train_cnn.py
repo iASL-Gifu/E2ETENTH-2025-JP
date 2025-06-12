@@ -87,7 +87,7 @@ def main(cfg: DictConfig) -> None:
             else:
                 if is_use_prev_action:
                     # prev_action を使うモデルの場合
-                    action = model(scan_seq, prev_action_seq)
+                    action = model(scan_seq, pre_action=prev_action_seq)
                 else:
                     # prev_action を使わないモデルの場合 (LiDARシーケンスのみ入力)
                     action = model(scan_seq)
