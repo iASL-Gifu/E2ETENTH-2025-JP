@@ -39,7 +39,7 @@
     </group>
 
     <group if="$(var advance)">
-        <include file="$(find-pkg-share joy_manager)/launch/advanced_teleop.launch.xml" />
+        <include file="$(find-pkg-share joy_manager)/launch/advanced.launch.xml" />
     </group>
     
 </launch>
