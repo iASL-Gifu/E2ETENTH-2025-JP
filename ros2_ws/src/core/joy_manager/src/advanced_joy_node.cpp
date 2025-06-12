@@ -2,6 +2,7 @@
 #include <chrono>
 #include <memory>
 #include <cmath>
+#include <functional> // std::bind と std::placeholders のために追加
 
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/joy.hpp"
@@ -9,6 +10,8 @@
 #include "std_msgs/msg/bool.hpp"
 
 using namespace std::chrono_literals;
+// [修正] std::bindで使用するプレースホルダ(_1, _2, ...)を有効にする
+using namespace std::placeholders;
 
 class AdvancedJoyNode : public rclcpp::Node
 {
@@ -88,11 +91,11 @@ private:
 
   void joy_callback(const sensor_msgs::msg::Joy::SharedPtr msg)
   {
-    if (msg->buttons.size() <= std::max({joy_enable_button_, throttle_button_, steer_gain_button_, start_button_, stop_button_})) {
+    if (msg->buttons.size() <= std::max({(size_t)joy_enable_button_, (size_t)throttle_button_, (size_t)steer_gain_button_, (size_t)start_button_, (size_t)stop_button_})) {
         RCLCPP_WARN_ONCE(get_logger(), "Joystick has not enough buttons for all functions.");
         return;
     }
-    if (msg->axes.size() <= steer_axis_) {
+    if (msg->axes.size() <= (size_t)steer_axis_) {
         RCLCPP_WARN_ONCE(get_logger(), "Joystick has not enough axes.");
         return;
     }
