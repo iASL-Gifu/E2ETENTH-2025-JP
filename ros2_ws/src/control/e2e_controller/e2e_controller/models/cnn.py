@@ -48,13 +48,8 @@ class TinyLidarNet(nn.Module):
 
 
 class TinyLidarLstmNet(nn.Module):
-    """
-    学習時(train)と評価時(eval)で出力形式が変わるモデル。
-    - train時: (Batch, SequenceLength, output_dim) を出力
-    - eval時 : (Batch, output_dim) を出力
-    """
+    # ... __init__ は変更なし ...
     def __init__(self, input_dim, output_dim, lstm_hidden_dim=128, lstm_layers=1):
-        # ... __init__ の中身は変更なし ...
         super().__init__()
         self.conv1 = nn.Conv1d(1, 24, kernel_size=10, stride=4)
         self.conv2 = nn.Conv1d(24, 36, kernel_size=8, stride=4)
@@ -74,7 +69,8 @@ class TinyLidarLstmNet(nn.Module):
         self.fc3 = nn.Linear(50, 10)
         self.fc4 = nn.Linear(10, output_dim)
 
-    def forward(self, x):
+    # hiddenを引数で受け取り、戻り値で返すように変更
+    def forward(self, x, hidden=None):
         if x.dim() == 2:
             x = x.unsqueeze(1)
         batch_size, seq_len, length = x.shape
@@ -90,37 +86,32 @@ class TinyLidarLstmNet(nn.Module):
         x = x.view(batch_size * seq_len, -1)
         x = x.view(batch_size, seq_len, self.flatten_dim)
 
-        # --- LSTM (共通部分) ---
-        lstm_out, (h_n, c_n) = self.lstm(x)
+        # --- LSTM (hiddenを受け取るように変更) ---
+        lstm_out, hidden = self.lstm(x, hidden) # hiddenは(h_n, c_n)のタプル
 
-        # self.training は model.train() / .eval() で切り替わる
         if self.training:
-            # --- 学習モードの場合 ---
-            # FC層に全シーケンスを渡し、(B, T, F) の出力を得る
             x = lstm_out.contiguous().view(batch_size * seq_len, -1)
             x = F.relu(self.fc1(x))
             x = F.relu(self.fc2(x))
             x = F.relu(self.fc3(x))
             x = torch.tanh(self.fc4(x))
-            # 出力の形状を (Batch, SequenceLength, output_dim) に戻す
             x = x.view(batch_size, seq_len, -1)
         else:
-            # --- 評価・推論モードの場合 ---
-            # シーケンスの最後の出力だけを取り出してFC層に渡す
-            last_lstm_out = lstm_out[:, -1, :] # Shape: (Batch, lstm_hidden_dim)
+            last_lstm_out = lstm_out[:, -1, :]
             x = F.relu(self.fc1(last_lstm_out))
             x = F.relu(self.fc2(x))
             x = F.relu(self.fc3(x))
             x = torch.tanh(self.fc4(x))
-            # 出力は (Batch, output_dim) の2次元テンソルになる
         
-        return x
+        # 計算後のhidden stateを返す
+        return x, hidden
     
 class TinyLidarConvLstmNet(nn.Module):
     """
     標準のLSTMの代わりにConvLSTM1dLayerを使用するモデル。
     - train時: (Batch, SequenceLength, output_dim) を出力
     - eval時 : (Batch, output_dim) を出力
+    - 状態の受け渡しに対応
     """
     def __init__(self, input_dim, output_dim, dws_conv_kernel_size=5):
         super().__init__()
@@ -130,70 +121,220 @@ class TinyLidarConvLstmNet(nn.Module):
         self.conv4 = nn.Conv1d(48, 64, kernel_size=3)
         self.conv5 = nn.Conv1d(64, 64, kernel_size=3)
         
-        # CNN部分の出力形状を把握
         with torch.no_grad():
             dummy_input = torch.zeros(1, 1, input_dim)
             cnn_out = self.conv5(self.conv4(self.conv3(self.conv2(self.conv1(dummy_input)))))
-            # cnn_out の形状は (1, channels, length)
-            self.cnn_channels = cnn_out.shape[1] # 例: 64
-            self.cnn_length = cnn_out.shape[2]   # 例: 28
-            self.flatten_dim = self.cnn_channels * self.cnn_length # 例: 64 * 28 = 1792
+            self.cnn_channels = cnn_out.shape[1]
+            self.cnn_length = cnn_out.shape[2]
+            self.flatten_dim = self.cnn_channels * self.cnn_length
 
-        # --- レイヤーの切り替え ---
-        # nn.LSTM の代わりに ConvLSTM1dLayer を使用
         self.conv_lstm = ConvLSTM1dLayer(
             dim=self.cnn_channels, 
             dws_conv_kernel_size=dws_conv_kernel_size
         )
         
-        # FC層の入力次元は、ConvLSTMの出力（隠れ状態）をflattenした次元になる
         self.fc1 = nn.Linear(self.flatten_dim, 100)
         self.fc2 = nn.Linear(100, 50)
         self.fc3 = nn.Linear(50, 10)
         self.fc4 = nn.Linear(10, output_dim)
 
-    def forward(self, x):
+    ### ここからが修正箇所 ###
+    def forward(self, x, hidden=None): # hiddenを引数で受け取る
         if x.dim() == 2:
             x = x.unsqueeze(1)
         batch_size, seq_len, length = x.shape
         
-        # --- CNN Feature Extraction (共通部分) ---
+        # --- CNN Feature Extraction ---
         x = x.view(batch_size * seq_len, length)
         x = x.unsqueeze(1)
         x = F.relu(self.conv1(x))
         x = F.relu(self.conv2(x))
         x = F.relu(self.conv3(x))
         x = F.relu(self.conv4(x))
-        x = F.relu(self.conv5(x)) # Shape: (B * T, C, L_cnn) = (B*T, 64, 28)
-        
-        # --- ConvLSTMへの入力形式に整形 ---
-        # (B * T, C, L_cnn) -> (B, T, C, L_cnn)
+        x = F.relu(self.conv5(x))
         x = x.view(batch_size, seq_len, self.cnn_channels, self.cnn_length)
 
-        # --- ConvLSTM (置き換えた部分) ---
-        # lstm_out: (B, T, C, L_cnn),  h_n: (B, C, L_cnn)
-        lstm_out, (h_n, c_n) = self.conv_lstm(x)
+        # lstm_out: (B, T, C, L_cnn),  last_hidden: ((B, C, L_cnn), (B, C, L_cnn))
+        lstm_out, last_hidden = self.conv_lstm(x, hidden)
+        h_n, c_n = last_hidden # 最後の隠れ状態とセル状態
 
         if self.training:
             # --- 学習モードの場合 ---
-            # FC層に渡すため、全シーケンスの C と L_cnn を flatten
-            # (B, T, C, L_cnn) -> (B * T, C * L_cnn)
             x = lstm_out.contiguous().view(batch_size * seq_len, -1)
             x = F.relu(self.fc1(x))
             x = F.relu(self.fc2(x))
             x = F.relu(self.fc3(x))
             x = torch.tanh(self.fc4(x))
-            # 出力の形状を (B, T, output_dim) に戻す
             x = x.view(batch_size, seq_len, -1)
         else:
             # --- 評価・推論モードの場合 ---
-            # 最後の隠れ状態 h_n をFC層に渡すため flatten
-            # (B, C, L_cnn) -> (B, C * L_cnn)
             last_out = h_n.view(batch_size, -1)
             x = F.relu(self.fc1(last_out))
             x = F.relu(self.fc2(x))
             x = F.relu(self.fc3(x))
             x = torch.tanh(self.fc4(x))
-            # 出力は (B, output_dim) の2次元テンソルになる
         
-        return x
+        # 推論結果と最後の状態をタプルで返す
+        return x, last_hidden
+    
+
+class TinyLidarActionLstmNet(nn.Module):
+    """
+    LiDARスキャンと前のアクションを入力とするモデル
+    """
+    def __init__(self, input_dim, output_dim, action_dim=2, lstm_hidden_dim=128, lstm_layers=1):
+        super().__init__()
+        # --- (変更点) actionの次元を保持 ---
+        self.action_dim = action_dim
+
+        # --- CNN層 (変更なし) ---
+        self.conv1 = nn.Conv1d(1, 24, kernel_size=10, stride=4)
+        self.conv2 = nn.Conv1d(24, 36, kernel_size=8, stride=4)
+        self.conv3 = nn.Conv1d(36, 48, kernel_size=4, stride=2)
+        self.conv4 = nn.Conv1d(48, 64, kernel_size=3)
+        self.conv5 = nn.Conv1d(64, 64, kernel_size=3)
+        with torch.no_grad():
+            dummy_input = torch.zeros(1, 1, input_dim)
+            cnn_out = self.conv5(self.conv4(self.conv3(self.conv2(self.conv1(dummy_input)))))
+            self.flatten_dim = cnn_out.view(1, -1).shape[1]
+
+        # --- LSTMのinput_sizeを CNN特徴量 + action次元 に変更 ---
+        self.lstm = nn.LSTM(
+            input_size=self.flatten_dim + self.action_dim,
+            hidden_size=lstm_hidden_dim,
+            num_layers=lstm_layers,
+            batch_first=True
+        )
+
+        self.fc1 = nn.Linear(lstm_hidden_dim, 100)
+        self.fc2 = nn.Linear(100, 50)
+        self.fc3 = nn.Linear(50, 10)
+        self.fc4 = nn.Linear(10, output_dim)
+
+    # forwardの引数に pre_action を追加 ---
+    def forward(self, x, pre_action, hidden=None):
+        if x.dim() == 2:
+            x = x.unsqueeze(1)
+        batch_size, seq_len, length = x.shape
+
+        # --- CNN Feature Extraction (LiDARデータのみを処理) ---
+        cnn_features = x.view(batch_size * seq_len, length)
+        cnn_features = cnn_features.unsqueeze(1)
+        cnn_features = F.relu(self.conv1(cnn_features))
+        cnn_features = F.relu(self.conv2(cnn_features))
+        cnn_features = F.relu(self.conv3(cnn_features))
+        cnn_features = F.relu(self.conv4(cnn_features))
+        cnn_features = F.relu(self.conv5(cnn_features))
+        cnn_features = cnn_features.view(batch_size, seq_len, self.flatten_dim)
+
+        
+        # pre_actionの形状を (batch_size, seq_len, action_dim) に合わせる
+        # 例: pre_actionが(batch_size, seq_len)ならunsqueezeで次元追加
+        if pre_action.dim() == len(cnn_features.shape) -1:
+             pre_action = pre_action.unsqueeze(-1)
+        
+        # 特徴量次元(dim=2)で連結
+        lstm_input = torch.cat((cnn_features, pre_action), dim=2)
+
+        # --- LSTM (連結した特徴量を入力) ---
+        lstm_out, hidden = self.lstm(lstm_input, hidden)
+
+        # --- 全結合層 (以降は変更なし) ---
+        if self.training:
+            # 訓練時: シーケンス全体の出力を計算
+            out = lstm_out.contiguous().view(batch_size * seq_len, -1)
+            out = F.relu(self.fc1(out))
+            out = F.relu(self.fc2(out))
+            out = F.relu(self.fc3(out))
+            out = torch.tanh(self.fc4(out))
+            out = out.view(batch_size, seq_len, -1)
+        else:
+            # 推論時: シーケンスの最後のタイムステップの出力のみを計算
+            last_lstm_out = lstm_out[:, -1, :]
+            out = F.relu(self.fc1(last_lstm_out))
+            out = F.relu(self.fc2(out))
+            out = F.relu(self.fc3(out))
+            out = torch.tanh(self.fc4(out))
+
+        return out, hidden
+    
+
+class TinyLidarActionConvLstmNet(nn.Module):
+    """
+    LiDARスキャンと前のアクションを入力とし、ConvLSTMを使用するモデル。
+    """
+    def __init__(self, input_dim, output_dim, action_dim=2, dws_conv_kernel_size=5):
+        super().__init__()
+        # --- actionの次元を保持 ---
+        self.action_dim = action_dim
+
+        # --- CNN層  ---
+        self.conv1 = nn.Conv1d(1, 24, kernel_size=10, stride=4)
+        self.conv2 = nn.Conv1d(24, 36, kernel_size=8, stride=4)
+        self.conv3 = nn.Conv1d(36, 48, kernel_size=4, stride=2)
+        self.conv4 = nn.Conv1d(48, 64, kernel_size=3)
+        self.conv5 = nn.Conv1d(64, 64, kernel_size=3)
+        
+        with torch.no_grad():
+            dummy_input = torch.zeros(1, 1, input_dim)
+            cnn_out = self.conv5(self.conv4(self.conv3(self.conv2(self.conv1(dummy_input)))))
+            self.cnn_channels = cnn_out.shape[1]
+            self.cnn_length = cnn_out.shape[2]
+
+        # --- ConvLSTMの入力チャネル数と、FC層の入力次元を更新 ---
+        self.conv_lstm_input_channels = self.cnn_channels + self.action_dim
+        self.conv_lstm = ConvLSTM1dLayer(
+            dim=self.conv_lstm_input_channels, 
+            dws_conv_kernel_size=dws_conv_kernel_size
+        )
+        
+        self.flatten_dim = self.conv_lstm_input_channels * self.cnn_length
+        self.fc1 = nn.Linear(self.flatten_dim, 100)
+        self.fc2 = nn.Linear(100, 50)
+        self.fc3 = nn.Linear(50, 10)
+        self.fc4 = nn.Linear(10, output_dim)
+
+    def forward(self, x, pre_action, hidden=None):
+        if x.dim() == 2:
+            x = x.unsqueeze(1)
+        batch_size, seq_len, length = x.shape
+        
+        # --- CNN Feature Extraction (LiDARデータのみを処理) ---
+        cnn_features = x.view(batch_size * seq_len, length)
+        cnn_features = cnn_features.unsqueeze(1)
+        cnn_features = F.relu(self.conv1(cnn_features))
+        cnn_features = F.relu(self.conv2(cnn_features))
+        cnn_features = F.relu(self.conv3(cnn_features))
+        cnn_features = F.relu(self.conv4(cnn_features))
+        cnn_features = F.relu(self.conv5(cnn_features))
+        cnn_features = cnn_features.view(batch_size, seq_len, self.cnn_channels, self.cnn_length)
+
+        # --- pre_actionを特徴マップ形状に拡張し、連結 ---
+        # pre_actionの形状を (B, T, action_dim) -> (B, T, action_dim, L_cnn) に拡張
+        action_map = pre_action.unsqueeze(-1).expand(-1, -1, -1, self.cnn_length)
+        
+        # チャネル次元(dim=2)で連結
+        conv_lstm_input = torch.cat((cnn_features, action_map), dim=2)
+        
+        # --- ConvLSTM (連結した特徴マップを入力) ---
+        # lstm_out: (B, T, C_new, L_cnn), last_hidden: ((B, C_new, L_cnn), (B, C_new, L_cnn))
+        lstm_out, last_hidden = self.conv_lstm(conv_lstm_input, hidden)
+        h_n, c_n = last_hidden
+
+        if self.training:
+            # --- 学習モードの場合 ---
+            out = lstm_out.contiguous().view(batch_size * seq_len, -1)
+            out = F.relu(self.fc1(out))
+            out = F.relu(self.fc2(out))
+            out = F.relu(self.fc3(out))
+            out = torch.tanh(self.fc4(out))
+            out = out.view(batch_size, seq_len, -1)
+        else:
+            # --- 評価・推論モードの場合 ---
+            last_out = h_n.view(batch_size, -1)
+            out = F.relu(self.fc1(last_out))
+            out = F.relu(self.fc2(out))
+            out = F.relu(self.fc3(out))
+            out = torch.tanh(self.fc4(out))
+        
+        return out, last_hidden

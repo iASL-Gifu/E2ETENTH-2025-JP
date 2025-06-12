@@ -12,10 +12,13 @@ ckpt_path: "./ckpts/num_1" # path to save checkpoints
 data_path: "./datasets/num_1" # path to the dataset
 
 ## model パラメータ
-model_name: TinyLidarNet ## TinyLidarNet or TinyLidarLstmNet
+## TinyLidarNet 
+## TinyLidarLstmNet, TinyLidarConvLstmNet
+## TinyLidarActionLstmNet, TinyLidarActionConvLstmNet
+
+model_name: TinyLidarNet 
 input_dim: 1081 
 output_dim: 2
-model_use_prev_action: false
 
 hydra:
   run:
