@@ -5,9 +5,9 @@ data_path: "./datasets/"
 ckpt_path: "./ckpts"
 
 ## model パラメータ
-## TinyLidarNet 
-## TinyLidarLstmNet, TinyLidarConvLstmNet
-## TinyLidarActionLstmNet, TinyLidarActionConvLstmNet
+## TinyLidarNet, TinyLidarLstmNet, TinyLidarConvLstmNet
+## TinyLidarActionNet, TinyLidarActionLstmNet, TinyLidarActionConvLstmNet
+## TinyLidarConvTransformerNet
 
 model_name: "TinyLidarNet" 
 

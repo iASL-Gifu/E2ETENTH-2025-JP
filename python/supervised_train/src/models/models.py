@@ -1,4 +1,13 @@
-from .cnn import TinyLidarNet, TinyLidarLstmNet, TinyLidarConvLstmNet, TinyLidarActionLstmNet, TinyLidarActionConvLstmNet, TinyLidarConvTransformerNet
+# from .cnn import TinyLidarNet, TinyLidarLstmNet, TinyLidarConvLstmNet, TinyLidarActionNet, TinyLidarActionLstmNet, TinyLidarActionConvLstmNet, TinyLidarConvTransformerNet
+from .cnn import (
+    TinyLidarNet,
+    TinyLidarLstmNet,
+    TinyLidarConvLstmNet,
+    TinyLidarActionNet,
+    TinyLidarActionLstmNet,
+    TinyLidarActionConvLstmNet,
+    TinyLidarConvTransformerNet
+)
 from .gnn import LidarGCN, LidarGAT, LidarGcnLstmNet, LidarGatLstmNet
 
 def load_cnn_model(model_name, input_dim, output_dim):
@@ -9,6 +18,8 @@ def load_cnn_model(model_name, input_dim, output_dim):
         return TinyLidarLstmNet(input_dim, output_dim, lstm_hidden_dim=128, lstm_layers=1)
     elif model_name == 'TinyLidarConvLstmNet':
         return TinyLidarConvLstmNet(input_dim, output_dim)
+    elif model_name == 'TinyLidarActionNet':
+        return TinyLidarActionNet(input_dim, output_dim, action_dim=2)
     elif model_name == 'TinyLidarActionLstmNet':
         return TinyLidarActionLstmNet(input_dim, output_dim, lstm_hidden_dim=128, lstm_layers=1)
     elif model_name == 'TinyLidarActionConvLstmNet':

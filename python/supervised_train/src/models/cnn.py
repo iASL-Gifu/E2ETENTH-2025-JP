@@ -178,6 +178,69 @@ class TinyLidarConvLstmNet(nn.Module):
         # 推論結果と最後の状態をタプルで返す
         return x, last_hidden
     
+class TinyLidarActionNet(nn.Module):
+    """
+    LiDARスキャンと前のアクションを入力とするモデル (LSTMなしバージョン)
+    """
+    def __init__(self, input_dim, output_dim, action_dim=2):
+        super().__init__()
+        self.action_dim = action_dim
+
+        # --- CNN層 (LiDARスキャンから空間的特徴を抽出) ---
+        # この部分は元のモデルから変更ありません
+        self.conv1 = nn.Conv1d(1, 24, kernel_size=10, stride=4)
+        self.conv2 = nn.Conv1d(24, 36, kernel_size=8, stride=4)
+        self.conv3 = nn.Conv1d(36, 48, kernel_size=4, stride=2)
+        self.conv4 = nn.Conv1d(48, 64, kernel_size=3)
+        self.conv5 = nn.Conv1d(64, 64, kernel_size=3)
+
+        # CNNの出力次元をダミーデータで自動計算
+        with torch.no_grad():
+            dummy_input = torch.zeros(1, 1, input_dim)
+            cnn_out = self.conv5(self.conv4(self.conv3(self.conv2(self.conv1(dummy_input)))))
+            self.flatten_dim = cnn_out.view(1, -1).shape[1]
+
+        # --- 全結合層 (CNN特徴量 + action を入力) ---
+        # LSTMを削除したため、fc1の入力はCNNの特徴量とactionの次元の合計になります
+        self.fc1 = nn.Linear(self.flatten_dim + self.action_dim, 100)
+        self.fc2 = nn.Linear(100, 50)
+        self.fc3 = nn.Linear(50, 10)
+        self.fc4 = nn.Linear(10, output_dim)
+
+    def forward(self, x, pre_action):
+        # --- 入力形状の調整 ---
+        # LSTMがないため、シーケンス(seq_len)の次元は扱いません。
+        # 入力xの形状を (batch_size, length) から (batch_size, 1, length) に変更します。
+        if x.dim() == 2:
+            x = x.unsqueeze(1)
+
+        # --- CNNによる特徴抽出 ---
+        cnn_features = F.relu(self.conv1(x))
+        cnn_features = F.relu(self.conv2(cnn_features))
+        cnn_features = F.relu(self.conv3(cnn_features))
+        cnn_features = F.relu(self.conv4(cnn_features))
+        cnn_features = F.relu(self.conv5(cnn_features))
+
+        # CNNの出力をフラット化 (batch_size, -1)
+        cnn_features = cnn_features.view(cnn_features.size(0), -1)
+
+        # --- 特徴量の連結 ---
+        # pre_actionの形状が (batch_size,) の場合、(batch_size, 1) に変換
+        if pre_action.dim() == 1:
+            pre_action = pre_action.unsqueeze(-1)
+        
+        # CNNで抽出した特徴量と、前の行動(pre_action)を次元1で連結します
+        combined_features = torch.cat((cnn_features, pre_action), dim=1)
+
+        # --- 全結合層による出力計算 ---
+        # LSTMがないため、訓練/推論の分岐や隠れ状態の扱いは不要です
+        out = F.relu(self.fc1(combined_features))
+        out = F.relu(self.fc2(out))
+        out = F.relu(self.fc3(out))
+        out = torch.tanh(self.fc4(out)) # 出力層の活性化関数は元のモデルに合わせます
+
+        # 戻り値は出力(out)のみです
+        return out
 
 class TinyLidarActionLstmNet(nn.Module):
     """
