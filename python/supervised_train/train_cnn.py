@@ -4,17 +4,13 @@ import os
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
-# 外部ファイルのimportを新しいものに更新
-from src.models.models import load_cnn_model # ご自身のモデル読み込み関数に置き換えてください
-from src.data.dataset.lidar_dataset import LidarSeqToSeqDataset
+from src.models.models import load_cnn_model 
+from python.supervised_train.src.data.dataset.dataset import HybridLoader 
 from src.data.dataset.transform import SeqToSeqTransform
+from src.models.layers.state_manager import RnnStateManager 
 
 @hydra.main(config_path="config", config_name="train_cnn", version_base="1.2")
 def main(cfg: DictConfig) -> None:
-    """
-    Hydraによって設定ファイルを読み込み、モデルの学習を行うメイン関数。
-    prev_actionの使用有無や、モデルの出力形式に柔軟に対応する。
-    """
     print("--- Configuration ---")
     print(OmegaConf.to_yaml(cfg))
     print("---------------------")
@@ -22,23 +18,24 @@ def main(cfg: DictConfig) -> None:
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     # --- データセットとデータローダーの準備 ---
-    # 新しいTransformとDatasetを使用
     transform = SeqToSeqTransform(
         range_max=cfg.range_max, 
-        base_num=1081, # Lidarの元の点群数に合わせて調整
+        base_num=1081,
         downsample_num=cfg.input_dim
     )
-    # to_absolute_pathで絶対パスに変換
     data_path = hydra.utils.to_absolute_path(cfg.data_path)
-    train_dataset = LidarSeqToSeqDataset(
-        root_dir=data_path, 
-        sequence_length=cfg.sequence_length, 
-        transform=transform
+    
+    # HybridLoaderを使用
+    train_loader = HybridLoader(
+        root_dir=data_path,
+        sequence_length=cfg.sequence_length,
+        total_batch_size=cfg.batch_size,  
+        random_ratio=cfg.random_ratio,    
+        transform=transform,
+        num_workers_random=cfg.num_workers 
     )
-    train_loader = DataLoader(train_dataset, batch_size=cfg.batch_size, shuffle=True)
-
+    
     # --- モデル、損失関数、最適化手法の準備 ---
-    # モデル名は設定ファイルから取得
     model = load_cnn_model(
         model_name=cfg.model_name, 
         input_dim=cfg.input_dim, 
@@ -50,13 +47,14 @@ def main(cfg: DictConfig) -> None:
     is_rnn = "Lstm" in cfg.model_name
     is_use_prev_action = "Action" in cfg.model_name
 
+    if is_rnn:
+        state_manager = RnnStateManager(device)
+
     # --- チェックポイントと早期終了の準備 (変更なし) ---
     save_path = cfg.ckpt_path
     os.makedirs(save_path, exist_ok=True)
-
     early_stop_epochs = cfg.early_stop_epochs
     patience_counter = 0
-    
     top_k = 3
     top_k_checkpoints = [] 
 
@@ -68,47 +66,45 @@ def main(cfg: DictConfig) -> None:
         model.train()
         running_loss = 0.0
 
+        if is_rnn:
+            state_manager.reset_states(cfg.batch_size)
+
         for batch in train_loader:
-            # 必要なデータをすべてデバイスに送る
             scan_seq = batch['scan_seq'].to(device)
             prev_action_seq = batch['prev_action_seq'].to(device)
             target_seq = batch['target_action_seq'].to(device)
+            # is_first_seqも取得
+            is_first_seq = batch['is_first_seq'].to(device) 
 
             # --- モデルへの入力を動的に切り替え ---
-            ## RNNの場合
             if is_rnn:
-                prev_hidden_state = None
+                prev_hidden_state = state_manager.get_states_for_batch(is_first_seq)
 
                 if is_use_prev_action:
                     action, hidden_state = model(scan_seq, pre_action=prev_action_seq, hidden=prev_hidden_state)
                 else:
                     action, hidden_state = model(scan_seq, hidden=prev_hidden_state)
-            ## RNN以外の場合
+                
+                state_manager.save_states_from_batch(hidden_state)
             else:
+               
                 if is_use_prev_action:
-                    # prev_action を使うモデルの場合
                     action = model(scan_seq, prev_action_seq)
                 else:
-                    # prev_action を使わないモデルの場合 (LiDARシーケンスのみ入力)
                     action = model(scan_seq)
 
-            # --- モデルの出力形状に合わせて教師データの形状を整形 ---
+            # --- 損失計算 ---
             if action.dim() == 3 and action.shape[1] > 1:
-                # 出力が時系列 [B, SeqLen, F] の場合 -> 教師データも時系列に
                 target = target_seq
             elif action.dim() == 2:
-                # 出力が非時系列 [B, F] の場合 -> 教師データはシーケンスの最後のフレーム
                 target = target_seq[:, -1, :]
             else:
-                # その他の想定外の形状
                 raise ValueError(f"Unsupported output shape: {action.shape}")
 
-            # 損失計算と逆伝播
             loss = criterion(action, target)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-
             running_loss += loss.item()
 
         avg_loss = running_loss / len(train_loader)
@@ -138,7 +134,6 @@ def main(cfg: DictConfig) -> None:
     print("Top models saved:")
     for loss_val, epoch_num, path in top_k_checkpoints:
         print(f"  - Epoch: {epoch_num}, Loss: {loss_val:.4f}, Path: {path}")
-
 
 if __name__ == "__main__":
     main()

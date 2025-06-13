@@ -3,10 +3,11 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-class LidarSeqToSeqDataset(Dataset):
+class RandomDataset(Dataset):
     """
-    シーケンス対シーケンス学習のためのデータセット。
+    シーケンス対シーケンス学習のためのデータセット（重なりなし）。
     各タイムステップで逐次的にアクションを推論し、損失を計算するモデル向け。
+    TBPTTでの使用を想定。サンプル間にデータの重複がなく、余りは破棄される。
     """
     def __init__(self, root_dir, sequence_length=10, transform=None):
         """
@@ -39,7 +40,6 @@ class LidarSeqToSeqDataset(Dataset):
                 continue
             
             scans = np.load(scans_path)
-            # 各ステップでprev_actionを必要とするため、sequence_length + 1 以上の長さが必要
             if len(scans) < self.sequence_length + 1:
                 continue
 
@@ -51,13 +51,14 @@ class LidarSeqToSeqDataset(Dataset):
             self.bags_data.append({'scans': scans, 'actions': actions})
 
             num_frames_in_bag = len(scans)
-            # スライディングウィンドウでサンプル情報を作成
-            # prev_actionを安全に取得するため、ループの開始位置に注意
-            for i in range(1, num_frames_in_bag - self.sequence_length + 1):
-                # i は prev_action_seq の開始インデックス
+            
+            # このループ条件により、sequence_lengthに満たない余りは自動的に無視される
+            for i in range(1, num_frames_in_bag - self.sequence_length + 1, self.sequence_length):
                 self.samples_info.append((current_bag_index, i))
 
-        print(f"[INFO] Created {len(self.samples_info)} sequence-to-sequence samples with length {self.sequence_length}.")
+        print(f"[INFO] Created {len(self.samples_info)} non-overlapping sequence-to-sequence samples with length {self.sequence_length}.")
+        print("[INFO] Remainder blocks shorter than sequence_length were discarded.")
+
 
     def __len__(self):
         return len(self.samples_info)
@@ -82,5 +83,6 @@ class LidarSeqToSeqDataset(Dataset):
         return {
             'scan_seq': torch.from_numpy(sample['scan_seq'].astype(np.float32)),
             'prev_action_seq': torch.from_numpy(sample['prev_action_seq']),
-            'target_action_seq': torch.from_numpy(sample['target_action_seq'])
+            'target_action_seq': torch.from_numpy(sample['target_action_seq']),
+            'is_first_seq': torch.tensor(True, dtype=torch.bool)
         }

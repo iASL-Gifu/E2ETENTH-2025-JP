@@ -1,25 +1,32 @@
-# train.yaml
-sequence_length: 1
-num_scan: 1081 # Lidar scan num
-range_max:  30.0 # max range of lidar
-batch_size : 16 # batch size for training
-num_epochs : 50 # number of epochs for training
-lr : 0.001 # learning rate
-## 早期終了　設定
-early_stop_epochs : 5 # number of epochs with no improvement after which training will be stopped
+# config/train_cnn.yaml
 
-ckpt_path: "./ckpts/num_1" # path to save checkpoints
-data_path: "./datasets/num_1" # path to the dataset
+# --- 基本設定 ---
+data_path: "./datasets/"
+ckpt_path: "./ckpts"
 
 ## model パラメータ
 ## TinyLidarNet 
 ## TinyLidarLstmNet, TinyLidarConvLstmNet
 ## TinyLidarActionLstmNet, TinyLidarActionConvLstmNet
 
-model_name: TinyLidarNet 
-input_dim: 1081 
-output_dim: 2
+model_name: "TinyLidarNet" 
 
+# --- モデルパラメータ ---
+input_dim: 1081
+output_dim: 2
+sequence_length: 10
+range_max: 30.0
+
+# --- 学習パラメータ ---
+lr: 0.0001
+num_epochs: 100
+early_stop_epochs: 10
+
+# --- データローダパラメータ ---
+batch_size: 8 
+random_ratio: 0.5   # バッチの XX% をランダムサンプルにする
+num_workers: 10      # ランダムローダ用のnum_workers
 hydra:
   run:
     dir: ./outputs/train_cnn/${now:%Y-%m-%d}/${now:%H-%M-%S}
+
