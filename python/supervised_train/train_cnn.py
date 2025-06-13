@@ -6,7 +6,7 @@ from omegaconf import DictConfig, OmegaConf
 
 from src.models.models import load_cnn_model 
 from python.supervised_train.src.data.dataset.dataset import HybridLoader 
-from src.data.dataset.transform import SeqToSeqTransform
+from src.data.dataset.transform import SeqToSeqTransform, StreamAugmentor
 from src.models.layers.state_manager import RnnStateManager 
 
 @hydra.main(config_path="config", config_name="train_cnn", version_base="1.2")
@@ -16,22 +16,42 @@ def main(cfg: DictConfig) -> None:
     print("---------------------")
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    
-    # --- データセットとデータローダーの準備 ---
-    transform = SeqToSeqTransform(
-        range_max=cfg.range_max, 
-        base_num=1081,
-        downsample_num=cfg.input_dim
-    )
     data_path = hydra.utils.to_absolute_path(cfg.data_path)
     
-    # HybridLoaderを使用
+    # --- データセットとデータローダーの準備 ---
+    transform_random = SeqToSeqTransform(
+        range_max=cfg.range_max,
+        downsample_num=cfg.input_dim,
+        augment=True, # 確率的なデータ拡張を有効化
+        flip_prob=cfg.getflip_prob, # configから設定可能に
+        noise_std=cfg.noise_std
+    )
+
+    # 2. StreamDataset用のベース変換Transformを作成 (データ拡張なし)
+    #    正規化やクリッピングなど、常に適用する決定的な処理のみ行います。
+    transform_stream = SeqToSeqTransform(
+        range_max=cfg.range_max,
+        downsample_num=cfg.input_dim,
+        augment=False # 確率的なデータ拡張は無効化
+    )
+
+    # 3. StreamDataset用のAugmentorを作成 (エピソード単位の拡張あり)
+    #    エピソード単位での確率的なデータ拡張を行います。
+    augmentor_stream = StreamAugmentor(
+        augment=True,
+        flip_prob=cfg.flip_prob,
+        noise_std=cfg.noise_std
+    )
+
+    # 4. HybridLoaderを新しいインタフェースで初期化
     train_loader = HybridLoader(
         root_dir=data_path,
         sequence_length=cfg.sequence_length,
         total_batch_size=cfg.batch_size,  
         random_ratio=cfg.random_ratio,    
-        transform=transform,
+        transform_random=transform_random,
+        transform_stream=transform_stream,
+        augmentor_stream=augmentor_stream,
         num_workers_random=cfg.num_workers 
     )
     
