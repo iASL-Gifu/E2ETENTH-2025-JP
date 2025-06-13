@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from .layers.lstm import ConvLSTM1dLayer
+from .layers.pos_encode import PositionalEncoding
 
 class TinyLidarNet(nn.Module):
     def __init__(self, input_dim, output_dim):
@@ -338,3 +339,88 @@ class TinyLidarActionConvLstmNet(nn.Module):
             out = torch.tanh(self.fc4(out))
         
         return out, last_hidden
+
+
+class TinyLidarConvTransformerNet(nn.Module):
+    
+    def __init__(self, 
+                 input_dim: int, 
+                 output_dim: int,
+                 d_model: int = 256,
+                 nhead: int = 4,
+                 num_encoder_layers: int = 2,
+                 dim_feedforward: int = 512,
+                 dropout: float = 0.1):
+        super().__init__()
+        
+        # --- 1. CNN層 ---
+        self.conv1 = nn.Conv1d(1, 24, kernel_size=10, stride=4)
+        self.conv2 = nn.Conv1d(24, 36, kernel_size=8, stride=4)
+        self.conv3 = nn.Conv1d(36, 48, kernel_size=4, stride=2)
+        self.conv4 = nn.Conv1d(48, 64, kernel_size=3)
+        self.conv5 = nn.Conv1d(64, 64, kernel_size=3)
+        with torch.no_grad():
+            dummy_input = torch.zeros(1, 1, input_dim)
+            cnn_out = self.conv5(self.conv4(self.conv3(self.conv2(self.conv1(dummy_input)))))
+            flatten_dim = cnn_out.view(1, -1).shape[1]
+
+        # CNNからの巨大な特徴量次元(flatten_dim)を、Transformerが扱いやすい次元(d_model)に圧縮する
+        self.input_projection = nn.Linear(flatten_dim, d_model)
+        
+        # --- 2. Positional Encoding ---
+        self.pos_encoder = PositionalEncoding(d_model=d_model, dropout=dropout)
+
+        # --- 3. Transformer Encoder ---
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=d_model, 
+            nhead=nhead, 
+            dim_feedforward=dim_feedforward, 
+            dropout=dropout,
+            batch_first=True
+        )
+        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_encoder_layers)
+        
+        # --- 4. FC層 (入力次元はd_model) ---
+        self.fc1 = nn.Linear(d_model, 100)
+        self.fc2 = nn.Linear(100, 50)
+        self.fc3 = nn.Linear(50, 10)
+        self.fc4 = nn.Linear(10, output_dim)
+
+    def forward(self, x):
+        batch_size, seq_len, length = x.shape
+        
+        # --- 1. CNN Feature Extraction ---
+        cnn_features = x.view(batch_size * seq_len, length)
+        # ... (CNNのforwardパスは変更なし) ...
+        cnn_features = F.relu(self.conv5(self.conv4(self.conv3(self.conv2(self.conv1(cnn_features.unsqueeze(1)))))))
+        
+        # (B * T, C, L_out) -> (B * T, flatten_dim) に変形
+        cnn_flattened = cnn_features.view(batch_size * seq_len, -1)
+        
+        # ★★★ Projection Layerを適用 ★★★
+        projected_features = self.input_projection(cnn_flattened)
+        
+        # (B * T, d_model) -> (B, T, d_model) に変形
+        transformer_input = projected_features.view(batch_size, seq_len, -1)
+
+        # --- 2. Positional Encoding ---
+        transformer_input = self.pos_encoder(transformer_input)
+        
+        # --- 3. Transformer Encoder ---
+        transformer_out = self.transformer_encoder(transformer_input)
+        
+        # --- 4. FC Layers ---
+        if self.training:
+            out = transformer_out.contiguous().view(batch_size * seq_len, -1)
+            out = F.relu(self.fc1(out))
+            out = F.relu(self.fc2(out))
+            out = F.relu(self.fc3(out))
+            out = torch.tanh(self.fc4(out))
+            out = out.view(batch_size, seq_len, -1)
+        else:
+            last_out = transformer_out[:, -1, :] # (Batch, d_model)
+            out = F.relu(self.fc1(last_out))
+            out = F.relu(self.fc2(last_out))
+            out = F.relu(self.fc3(out))
+            out = torch.tanh(self.fc4(out))
+        return out
