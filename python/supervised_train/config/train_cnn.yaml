@@ -25,6 +25,8 @@ early_stop_epochs: 10
 # --- データローダパラメータ ---
 batch_size: 8 
 random_ratio: 0.5   # バッチの XX% をランダムサンプルにする
+flip_prob: 0.5
+noise_std: 0.01
 num_workers: 10      # ランダムローダ用のnum_workers
 hydra:
   run:

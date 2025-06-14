@@ -5,7 +5,7 @@ import hydra
 from omegaconf import DictConfig, OmegaConf
 
 from src.models.models import load_cnn_model 
-from python.supervised_train.src.data.dataset.dataset import HybridLoader 
+from src.data.dataset.dataset import HybridLoader 
 from src.data.dataset.transform import SeqToSeqTransform, StreamAugmentor
 from src.models.layers.state_manager import RnnStateManager 
 
@@ -23,7 +23,7 @@ def main(cfg: DictConfig) -> None:
         range_max=cfg.range_max,
         downsample_num=cfg.input_dim,
         augment=True, # 確率的なデータ拡張を有効化
-        flip_prob=cfg.getflip_prob, # configから設定可能に
+        flip_prob=cfg.flip_prob, # configから設定可能に
         noise_std=cfg.noise_std
     )
 
