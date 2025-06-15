@@ -3,6 +3,7 @@ import numpy as np
 import torch
 from torch.utils.data import IterableDataset
 import random
+import math
 
 from .transform import StreamAugmentor 
 class StreamDataset(IterableDataset):
@@ -32,6 +33,19 @@ class StreamDataset(IterableDataset):
 
         if not self.bags_data:
             raise ValueError("No valid bags were found in the root directory.")
+        
+    def __len__(self):
+        total_sequences = 0
+        for bag_data in self.bags_data:
+            # 例: actionsが100フレーム、sequence_lengthが10なら、91個のシーケンス (0-9, 1-10, ..., 90-99)
+            num_frames_in_bag = len(bag_data['actions'])
+            if num_frames_in_bag >= self.sequence_length:
+                total_sequences += (num_frames_in_bag - self.sequence_length + 1) // self.sequence_length
+
+        if self.batch_size == 0: # 念のため0除算を避ける
+            return total_sequences # batch_sizeが0は想定外だが、安全のため
+
+        return max(1, math.ceil(total_sequences / self.batch_size))
 
     def _load_data(self):
         """ルートディレクトリからすべてのbagデータをメモリに読み込む"""
@@ -107,12 +121,29 @@ class StreamDataset(IterableDataset):
                     continue
 
                 active_workers += 1
+            
+                # 元データをNumpyとして取得
+                # prev_action_seq の処理を改善
+                current_scan_seq = bag_data['scans'][start_frame : start_frame + N]
+                current_target_action_seq = bag_data['actions'][start_frame : start_frame + N]
+
+                if start_frame == 0:
+                    # シーケンスの最初のフレームの場合、ダミーのprev_actionを設定
+                    dummy_prev_action = np.zeros_like(bag_data['actions'][0]) # actions[0]の形状を使用
+                    # 最初のダミーアクションと、その後のN-1個の実際のアクションを連結
+                    current_prev_action_seq = np.concatenate(
+                        (dummy_prev_action[np.newaxis, :], bag_data['actions'][start_frame : start_frame + N - 1]),
+                        axis=0
+                    )
+                else:
+                    current_prev_action_seq = bag_data['actions'][start_frame - 1 : start_frame + N - 1]
+
                 
                 # 元データをNumpyとして取得（actionは意図せぬ変更を防ぐためコピー）
                 sample = {
-                    'scan_seq': bag_data['scans'][start_frame : start_frame + N],
-                    'prev_action_seq': bag_data['actions'][start_frame - 1 : start_frame + N - 1].copy(),
-                    'target_action_seq': bag_data['actions'][start_frame : start_frame + N].copy()
+                    'scan_seq': current_scan_seq,
+                    'prev_action_seq': current_prev_action_seq.copy(), # .copy() は良い習慣
+                    'target_action_seq': current_target_action_seq.copy()
                 }
                 
                 # ★★★ 計画に基づいてAugmentorを適用 ★★★

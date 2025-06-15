@@ -73,7 +73,8 @@ class HybridLoader:
             self.stream_loader = DataLoader(
                 stream_dataset,
                 batch_size=None, # Dataset内部でバッチングするためNone
-                num_workers=0      # IterableDatasetのマルチプロセスは複雑なので0を推奨
+                num_workers=0,      # IterableDatasetのマルチプロセスは複雑なので0を推奨
+                drop_last=False,     # 最後の不完全なバッチをドロップ
             )
         else:
             self.stream_loader = None
