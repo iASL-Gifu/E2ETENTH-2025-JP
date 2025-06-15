@@ -45,5 +45,9 @@ config/train_cnn.yamlを編集し、実行します。
 ```bash
 python3 train_cnn.py \
 model_name=<model> \
-sequence_length=<length>
+data_path=./datasets/ \
+ckpt_path=./ckpts/ \
+sequence_length=<length> \
+random_ratio=0.5 \
+
 ```
