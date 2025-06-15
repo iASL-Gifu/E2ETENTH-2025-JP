@@ -1,5 +1,3 @@
-import torch
-
 class RnnStateManager:
     """
     StatefulなRNNの隠れ状態を管理するクラス。
