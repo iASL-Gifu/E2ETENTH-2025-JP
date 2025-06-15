@@ -2,10 +2,9 @@ import torch
 from torch.utils.data import DataLoader
 import math
 
-# --- 連携するクラスのインポートを想定 ---
 from .random_dataset import RandomDataset
 from .stream_dataset import StreamDataset
-from .transform import StreamAugmentor # 例
+
 
 class HybridLoader:
     """

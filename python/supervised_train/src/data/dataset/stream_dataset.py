@@ -103,10 +103,30 @@ class StreamDataset(IterableDataset):
                 'scan_seq': [], 'prev_action_seq': [], 'target_action_seq': [], 'is_first_seq': []
             }
             active_workers = 0
+            
+            # 各ワーカーの元の状態を保持
+            initial_worker_frame_cursors = list(worker_frame_cursor)
+            initial_worker_bag_cursors = list(worker_bag_cursor)
+
 
             # 5. 各ワーカーからデータを1つずつ集めてバッチを作成
             for i in range(self.batch_size):
                 if worker_bag_cursor[i] >= len(worker_queues[i]):
+                    # このワーカーはすでに終了している
+                    # ★★★ Padding用のダミーサンプルを追加 ★★★
+                    # ダミーサンプルの形状を元のデータに合わせる必要があります。
+                    # ここでは、最初のbag_dataの形状を参考にします。
+                    if not self.bags_data: # データがない場合はスキップ
+                        continue
+
+                    # ダミーデータの形状を決定するための参照
+                    ref_scan_shape = (N,) + self.bags_data[0]['scans'].shape[1:]
+                    ref_action_shape = (N,) + self.bags_data[0]['actions'].shape[1:]
+
+                    batch['scan_seq'].append(np.zeros(ref_scan_shape, dtype=np.float32))
+                    batch['prev_action_seq'].append(np.zeros(ref_action_shape, dtype=np.float32))
+                    batch['target_action_seq'].append(np.zeros(ref_action_shape, dtype=np.float32))
+                    batch['is_first_seq'].append(True) # ダミーなので常にリセット
                     continue
 
                 current_bag_queue_idx = worker_bag_cursor[i]
@@ -116,21 +136,31 @@ class StreamDataset(IterableDataset):
                 start_frame = worker_frame_cursor[i]
 
                 if start_frame + N >= len(bag_data['actions']):
+                    # このワーカーの現在のbagが終了した
                     worker_bag_cursor[i] += 1
                     worker_frame_cursor[i] = 0
+                    
+                    # ★★★ Padding用のダミーサンプルを追加 ★★★
+                    if not self.bags_data: # データがない場合はスキップ
+                        continue
+
+                    ref_scan_shape = (N,) + self.bags_data[0]['scans'].shape[1:]
+                    ref_action_shape = (N,) + self.bags_data[0]['actions'].shape[1:]
+
+                    batch['scan_seq'].append(np.zeros(ref_scan_shape, dtype=np.float32))
+                    batch['prev_action_seq'].append(np.zeros(ref_action_shape, dtype=np.float32))
+                    batch['target_action_seq'].append(np.zeros(ref_action_shape, dtype=np.float32))
+                    batch['is_first_seq'].append(True) # ダミーなので常にリセット
                     continue
 
                 active_workers += 1
             
                 # 元データをNumpyとして取得
-                # prev_action_seq の処理を改善
                 current_scan_seq = bag_data['scans'][start_frame : start_frame + N]
                 current_target_action_seq = bag_data['actions'][start_frame : start_frame + N]
 
                 if start_frame == 0:
-                    # シーケンスの最初のフレームの場合、ダミーのprev_actionを設定
-                    dummy_prev_action = np.zeros_like(bag_data['actions'][0]) # actions[0]の形状を使用
-                    # 最初のダミーアクションと、その後のN-1個の実際のアクションを連結
+                    dummy_prev_action = np.zeros_like(bag_data['actions'][0])
                     current_prev_action_seq = np.concatenate(
                         (dummy_prev_action[np.newaxis, :], bag_data['actions'][start_frame : start_frame + N - 1]),
                         axis=0
@@ -138,41 +168,40 @@ class StreamDataset(IterableDataset):
                 else:
                     current_prev_action_seq = bag_data['actions'][start_frame - 1 : start_frame + N - 1]
 
-                
-                # 元データをNumpyとして取得（actionは意図せぬ変更を防ぐためコピー）
                 sample = {
                     'scan_seq': current_scan_seq,
-                    'prev_action_seq': current_prev_action_seq.copy(), # .copy() は良い習慣
+                    'prev_action_seq': current_prev_action_seq.copy(),
                     'target_action_seq': current_target_action_seq.copy()
                 }
                 
-                # ★★★ 計画に基づいてAugmentorを適用 ★★★
                 if self.augmentor and bag_idx in episode_plans:
                     plan = episode_plans[bag_idx]
                     sample = self.augmentor.apply(sample, plan)
 
-                # ★★★ (オプション) 最終的なtransformを適用 ★★★
                 if self.transform:
                     sample = self.transform(sample)
 
                 is_first = (start_frame == 0)
 
-                # 変換後のデータをバッチに追加
                 for key in ['scan_seq', 'prev_action_seq', 'target_action_seq']:
                     batch[key].append(sample[key])
                 batch['is_first_seq'].append(is_first)
 
                 worker_frame_cursor[i] += N
 
-            if active_workers == 0:
+            # ループを終了する条件を再評価
+            # 全ワーカーのカーソルが進んでいない場合、つまりデータが全く供給されない場合は終了
+            if all(worker_frame_cursor[i] == initial_worker_frame_cursors[i] and \
+                   worker_bag_cursor[i] == initial_worker_bag_cursors[i] for i in range(self.batch_size)):
                 break
 
-            if active_workers > 0:
-                # バッチ内のデータをNumpy配列にまとめ、Torch Tensorに変換
-                final_batch = {
-                    key: torch.from_numpy(np.array(val, dtype=np.float32))
-                    for key, val in batch.items() if key != 'is_first_seq'
-                }
-                final_batch['is_first_seq'] = torch.tensor(batch['is_first_seq'], dtype=torch.bool)
-                
-                yield final_batch
+            # active_workers は Padding 後の処理では使われないので削除
+            # if active_workers > 0: # この条件は不要になり、常に yield する
+            # バッチ内のデータをNumpy配列にまとめ、Torch Tensorに変換
+            final_batch = {
+                key: torch.from_numpy(np.array(val, dtype=np.float32))
+                for key, val in batch.items() if key != 'is_first_seq'
+            }
+            final_batch['is_first_seq'] = torch.tensor(batch['is_first_seq'], dtype=torch.bool)
+            
+            yield final_batch

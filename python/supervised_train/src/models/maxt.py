@@ -3,9 +3,9 @@ import torch.nn as nn
 from omegaconf import DictConfig, OmegaConf
 from typing import Union, Dict
 
-from layers.maxt1d import MaxT1d
-from layers.fpn1d import PAFPN1d
-from layers.head import _MultiScaleHead
+from .layers.maxt1d import MaxT1d
+from .layers.fpn1d import PAFPN1d
+from .layers.head import _MultiScaleHead
 
 def get_model_cfg(
     model_size: str, 
