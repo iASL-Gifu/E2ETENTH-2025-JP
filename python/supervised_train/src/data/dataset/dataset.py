@@ -2,8 +2,8 @@ import torch
 from torch.utils.data import DataLoader
 import math
 
-from .random_dataset import RandomDataset
-from .stream_dataset import StreamDataset
+from .random_dataset import ConcatRndDataset
+from .stream_dataset import ConcatStreamDataset
 
 
 class HybridLoader:
@@ -49,7 +49,7 @@ class HybridLoader:
         # 2. 各データセットとデータローダを初期化
         if random_batch_size > 0:
             # RandomDatasetには、従来のデータ拡張とベース変換を含むtransformを渡す
-            random_dataset = RandomDataset(root_dir, sequence_length, transform=transform_random)
+            random_dataset = ConcatRndDataset(root_dir, sequence_length, transform=transform_random)
             self.random_loader = DataLoader(
                 random_dataset,
                 batch_size=random_batch_size,
@@ -62,7 +62,7 @@ class HybridLoader:
 
         if stream_batch_size > 0:
             # StreamDatasetには、augmentorとベース変換のみのtransformを渡す
-            stream_dataset = StreamDataset(
+            stream_dataset = ConcatStreamDataset(
                 root_dir,
                 stream_batch_size,
                 sequence_length,

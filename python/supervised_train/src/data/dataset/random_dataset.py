@@ -1,80 +1,55 @@
 import os
 import numpy as np
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, ConcatDataset
 
-class RandomDataset(Dataset):
+class SequenceRndDataset(Dataset):
     """
-    シーケンス対シーケンス学習のためのデータセット（重なりなし）。
-    各タイムステップで逐次的にアクションを推論し、損失を計算するモデル向け。
-    TBPTTでの使用を想定。サンプル間にデータの重複がなく、余りは破棄される。
+    単一のルートディレクトリからシーケンス対シーケンス学習のためのサンプルを生成するデータセット。
     """
-    def __init__(self, root_dir, sequence_length=10, transform=None):
-        """
-        Args:
-            root_dir (string): .npyファイル群が格納されたルートディレクトリ。
-            sequence_length (int): 1つのサンプルとして切り出すシーケンスの長さ。
-            transform (callable, optional): サンプルに適用されるオプションの変換。
-        """
+    def __init__(self, seq_dir, sequence_length=10, transform=None):
         if sequence_length < 1:
             raise ValueError("sequence_length must be at least 1.")
-            
+        
         self.sequence_length = sequence_length
         self.transform = transform
+        self.samples_info = [] # (start_idx,) のタプルのリスト
+
+        # データのロード
+        scans_path = os.path.join(seq_dir, 'scans.npy')
+        steers_path = os.path.join(seq_dir, 'steers.npy')
+        speeds_path = os.path.join(seq_dir, 'speeds.npy')
         
-        self.bags_data = []
-        self.samples_info = []
-
-        root_dir = os.path.expanduser(root_dir)
-
-        for bag_name in sorted(os.listdir(root_dir)):
-            
-            bag_dir = os.path.join(root_dir, bag_name)
-            if not os.path.isdir(bag_dir):
-                continue
-
-            scans_path = os.path.join(bag_dir, 'scans.npy')
-            steers_path = os.path.join(bag_dir, 'steers.npy')
-            speeds_path = os.path.join(bag_dir, 'speeds.npy')
-            if not all(os.path.exists(p) for p in [scans_path, steers_path, speeds_path]):
-                continue
-            
-            scans = np.load(scans_path)
-            if len(scans) < self.sequence_length + 1:
-                continue
-
-            steers = np.load(steers_path)
-            speeds = np.load(speeds_path)
-            actions = np.stack([steers, speeds], axis=1).astype(np.float32)
-            
-            current_bag_index = len(self.bags_data)
-            self.bags_data.append({'scans': scans, 'actions': actions})
-
-            num_frames_in_bag = len(scans)
-            
-            # このループ条件により、sequence_lengthに満たない余りは自動的に無視される
-            for i in range(1, num_frames_in_bag - self.sequence_length + 1, self.sequence_length):
-                self.samples_info.append((current_bag_index, i))
-
-        print(f"[INFO] Created {len(self.samples_info)} non-overlapping sequence-to-sequence samples with length {self.sequence_length}.")
-        print("[INFO] Remainder blocks shorter than sequence_length were discarded.")
-
+        if not all(os.path.exists(p) for p in [scans_path, steers_path, speeds_path]):
+            raise FileNotFoundError(f"Missing one or more .npy files in {seq_dir}")
+        
+        self.scans = np.load(scans_path)
+        if len(self.scans) < self.sequence_length + 1:
+            # シーケンス長+1 に満たない場合は、このバッグからはサンプルを生成しない
+            print(f"Warning: Bag {seq_dir} too short for sequence_length {sequence_length}. Skipping.")
+            return
+        
+        steers = np.load(steers_path)
+        speeds = np.load(speeds_path)
+        self.actions = np.stack([steers, speeds], axis=1).astype(np.float32)
+        
+        num_frames_in_bag = len(self.scans)
+        
+        # シーケンスの開始インデックスを生成
+        for i in range(1, num_frames_in_bag - self.sequence_length + 1, self.sequence_length):
+            self.samples_info.append(i) # ここでは開始インデックスのみを格納
 
     def __len__(self):
         return len(self.samples_info)
 
     def __getitem__(self, idx):
-        bag_index, start_idx = self.samples_info[idx]
+        start_idx = self.samples_info[idx]
         N = self.sequence_length
         
-        bag_data = self.bags_data[bag_index]
-        scans = bag_data['scans']
-        actions = bag_data['actions']
-        
         sample = {
-            'scan_seq': scans[start_idx : start_idx + N],
-            'prev_action_seq': actions[start_idx - 1 : start_idx + N - 1],
-            'target_action_seq': actions[start_idx : start_idx + N]
+            'scan_seq': self.scans[start_idx : start_idx + N],
+            'prev_action_seq': self.actions[start_idx - 1 : start_idx + N - 1],
+            'target_action_seq': self.actions[start_idx : start_idx + N]
         }
 
         if self.transform:
@@ -84,5 +59,49 @@ class RandomDataset(Dataset):
             'scan_seq': torch.from_numpy(sample['scan_seq'].astype(np.float32)),
             'prev_action_seq': torch.from_numpy(sample['prev_action_seq']),
             'target_action_seq': torch.from_numpy(sample['target_action_seq']),
-            'is_first_seq': torch.tensor(True, dtype=torch.bool)
+            'is_first_seq': torch.tensor(True, dtype=torch.bool) 
         }
+
+class ConcatRndDataset(Dataset):
+    """
+    複数のSingleSequenceDatasetインスタンスを結合するデータセット。
+    """
+    def __init__(self, root_dir, sequence_length=10, transform=None):
+        self.sequence_length = sequence_length
+        self.transform = transform # transformは各SingleSequenceDatasetに渡す
+        
+        self.datasets = []
+        root_dir = os.path.expanduser(root_dir)
+
+        # root_dir内の各bag_nameディレクトリに対してSingleSequenceDatasetを作成
+        for seq_name in sorted(os.listdir(root_dir)):
+            seq_dir = os.path.join(root_dir, seq_name)
+            if not os.path.isdir(seq_dir):
+                continue
+            
+            try:
+                # 各SingleSequenceDatasetにtransformを渡す
+                single_dataset = SequenceRndDataset(seq_dir, sequence_length, transform)
+                if len(single_dataset) > 0: # サンプルが生成された場合のみ追加
+                    self.datasets.append(single_dataset)
+            except FileNotFoundError as e:
+                print(f"Skipping {seq_dir} due to missing files: {e}")
+            except ValueError as e:
+                print(f"Skipping {seq_dir} due to data error: {e}")
+
+        # PyTorchのConcatDatasetを利用して、複数のデータセットを結合
+        if not self.datasets:
+            print("[INFO] No valid datasets found to combine.")
+            self.combined_dataset = []
+        else:
+            self.combined_dataset = ConcatDataset(self.datasets)
+
+        print(f"[INFO] Created {len(self.combined_dataset)} non-overlapping sequence-to-sequence samples with length {self.sequence_length}.")
+        print("[INFO] Remainder blocks shorter than sequence_length were discarded.")
+
+    def __len__(self):
+        return len(self.combined_dataset)
+
+    def __getitem__(self, idx):
+        return self.combined_dataset[idx]
+    

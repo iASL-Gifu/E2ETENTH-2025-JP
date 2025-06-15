@@ -36,48 +36,52 @@ class SeqToSeqTransform:
     def __call__(self, sample: dict) -> dict:
         """
         データセットから取得したサンプルに前処理とデータ拡張を適用する。
+        入力された辞書 `sample` を直接更新し、その `sample` を返す。
         """
         # --- 1. ベースの前処理 ---
-        scan_seq = sample['scan_seq']
-        
-        # 1-1. LiDARデータのクリッピングと正規化
-        scan_seq = np.clip(scan_seq, 0, self.range_max) / self.range_max
-        
-        # 1-2. ダウンサンプリング
-        processed_scan_seq = scan_seq[:, self.sample_indices]
+        # scan_seq を直接更新
+        sample['scan_seq'] = np.clip(sample['scan_seq'], 0, self.range_max) / self.range_max
+        sample['scan_seq'] = sample['scan_seq'][:, self.sample_indices]
 
-        # アクションデータを後続処理のためにコピー
-        prev_action_seq = sample['prev_action_seq'].copy()
-        target_action_seq = sample['target_action_seq'].copy()
+        # prev_action_seq と target_action_seq は参照渡しになるので、
+        # 必要に応じて `.copy()` で新しい配列を作成し、
+        # 変換後に元の辞書キーを新しい配列で上書きします。
+        # データ拡張部分で内容が変更されるので、ここでコピーしておくと安全です。
+        prev_action_seq_copy = sample['prev_action_seq'].copy()
+        target_action_seq_copy = sample['target_action_seq'].copy()
 
         # --- 2. データ拡張 (augmentフラグがTrueの場合のみ実行) ---
         if self.augment:
             # 2-1. 左右反転
             if random.random() < self.flip_prob:
-                processed_scan_seq = np.flip(processed_scan_seq, axis=1)
+                sample['scan_seq'] = np.flip(sample['scan_seq'], axis=1) # 直接更新
+                
                 # steer ([:, 0]) の符号を反転
-                prev_action_seq[:, 0] *= -1
-                target_action_seq[:, 0] *= -1
+                prev_action_seq_copy[:, 0] *= -1
+                target_action_seq_copy[:, 0] *= -1
 
             # 2-2. ノイズ付与
             if self.noise_std > 0:
                 # ガウスノイズを生成
-                noise = np.random.normal(0, self.noise_std, processed_scan_seq.shape)
+                noise = np.random.normal(0, self.noise_std, sample['scan_seq'].shape)
                 # ノイズを付与し、値が [0, 1] の範囲に収まるようにクリップ
-                processed_scan_seq = np.clip(processed_scan_seq + noise, 0, 1.0)
+                sample['scan_seq'] = np.clip(sample['scan_seq'] + noise, 0, 1.0) # 直接更新
 
         # --- 3. アクションのクリッピング (最終処理) ---
         # 拡張処理で値が範囲外に出る可能性も考慮し、最後にクリッピングを行う
-        np.clip(prev_action_seq[:, 0], -1.0, 1.0, out=prev_action_seq[:, 0]) # steer
-        np.clip(prev_action_seq[:, 1], -1.0, 1.0, out=prev_action_seq[:, 1]) # speed
-        np.clip(target_action_seq[:, 0], -1.0, 1.0, out=target_action_seq[:, 0]) # steer
-        np.clip(target_action_seq[:, 1], -1.0, 1.0, out=target_action_seq[:, 1]) # speed
+        np.clip(prev_action_seq_copy[:, 0], -1.0, 1.0, out=prev_action_seq_copy[:, 0]) # steer
+        np.clip(prev_action_seq_copy[:, 1], -1.0, 1.0, out=prev_action_seq_copy[:, 1]) # speed
+        np.clip(target_action_seq_copy[:, 0], -1.0, 1.0, out=target_action_seq_copy[:, 0]) # steer
+        np.clip(target_action_seq_copy[:, 1], -1.0, 1.0, out=target_action_seq_copy[:, 1]) # speed
 
-        return {
-            'scan_seq': processed_scan_seq,
-            'prev_action_seq': prev_action_seq,
-            'target_action_seq': target_action_seq
-        }
+        # 更新されたアクション配列を元の辞書に戻す
+        sample['prev_action_seq'] = prev_action_seq_copy
+        sample['target_action_seq'] = target_action_seq_copy
+
+        # 元の sample 辞書を直接返します。
+        # これにより、'is_first_seq' や他のキーが変更されずに保持されます。
+        return sample
+
     
 
 class StreamAugmentor:

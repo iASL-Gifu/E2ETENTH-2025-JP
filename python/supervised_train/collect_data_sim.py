@@ -84,7 +84,7 @@ def main(cfg: DictConfig):
             for step in range(num_steps):
                 steer, speed = planner.plan(obs)
                 action = np.array([steer, speed], dtype='float32').reshape(1, 2)
-                scan   = obs['scans'][0].astype('float32').reshape(1, cfg.envs.num_beams)
+                scan = np.array(obs['scans']).astype('float32').squeeze(axis=0)
 
                 wpts = map_manager.get_future_waypoints(
                     current_pos, num_points=num_waypoints
@@ -116,7 +116,6 @@ def main(cfg: DictConfig):
             # `terminated` または `truncated` で早期終了しなかった場合のみデータを保存
             if not truncated:
                 # --- データの書き込み ---
-                # 保存パスを run_output_dir に変更
                 np.save(os.path.join(run_output_dir, "scans.npy"), np.array(scans))
 
                 # actions を steers と speeds に分割して保存
