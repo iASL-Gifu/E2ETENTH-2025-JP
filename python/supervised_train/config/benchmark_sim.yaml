@@ -1,4 +1,3 @@
-output_dir: ./datasets/sim/
 num_steps: 10000
 render: false
 render_mode: human_fast
@@ -9,6 +8,7 @@ model_name: "TinyLidarNet"
 input_dim: 1080
 output_dim: 2
 sequence_length: 10
+ckpt_path: ???
 
 benchmark_dir: ./benchmarks/
 

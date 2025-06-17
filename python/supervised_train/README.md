@@ -72,3 +72,9 @@ sequence_length=<length>  \
 random_ratio=0.5 \
 batch_size=8
 ```
+
+### 3. benchmark on simulator
+```bash
+python3 benchmark_sim.py \
+ckpt_path=./ckpts/
+```
