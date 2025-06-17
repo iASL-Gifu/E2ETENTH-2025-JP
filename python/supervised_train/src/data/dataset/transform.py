@@ -10,7 +10,7 @@ class SeqToSeqTransform:
     def __init__(self,
                  # --- ベース処理パラメータ ---
                  range_max: float = 30.0,
-                 base_num: int = 1081,
+                 base_num: int = 1080,
                  downsample_num: int = 181,
                  # --- データ拡張パラメータ ---
                  augment: bool = True,
@@ -38,6 +38,10 @@ class SeqToSeqTransform:
         データセットから取得したサンプルに前処理とデータ拡張を適用する。
         入力された辞書 `sample` を直接更新し、その `sample` を返す。
         """
+        scan_seq = sample['scan_seq']
+        if scan_seq.shape[1] == 1081:
+            scan_seq = scan_seq[:, :-1]  # 最後の点(1081番目)を除外し、1080点にする
+        
         # --- 1. ベースの前処理 ---
         # scan_seq を直接更新
         sample['scan_seq'] = np.clip(sample['scan_seq'], 0, self.range_max) / self.range_max
