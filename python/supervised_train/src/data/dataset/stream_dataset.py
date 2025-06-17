@@ -97,6 +97,7 @@ class SequenceStreamDataset(IterableDataset):
 
             # SingleStreamBagIterableDatasetはNumPy配列を返す
             yield sample
+            
 
 class ConcatStreamDataset(IterableDataset):
     """
@@ -137,44 +138,49 @@ class ConcatStreamDataset(IterableDataset):
         
         # 各bag_dataset（SequenceStreamDatasetインスタンス）の長さを合計
         for bag_dataset in self.bag_datasets:
-            total_sequences_across_all_bags += len(bag_dataset) # SequenceStreamDatasetの__len__を呼び出す
+            total_sequences_across_all_bags += len(bag_dataset)
         
-        if self.batch_size == 0: # ゼロ除算回避
-            # batch_sizeが0は想定外だが、安全のため総シーケンス数を返す
+        if self.batch_size == 0:
             return total_sequences_across_all_bags 
 
-        # 全シーケンス数をバッチサイズで割って切り上げると、生成されるバッチの概算数になる
-        # max(1, ...) は、データが少ない場合に少なくとも1を返すため
         return max(1, math.ceil(total_sequences_across_all_bags / self.batch_size))
 
-        
-
     def _load_bag_datasets(self):
-        """ルートディレクトリからすべてのSingleStreamBagIterableDatasetインスタンスを読み込む"""
+        """ルートディレクトリを再帰的に探索し、すべての有効なデータセットインスタンスを読み込む"""
         bag_datasets = []
-        for bag_name in sorted(os.listdir(self.root_dir)):
-            bag_dir = os.path.join(self.root_dir, bag_name)
-            if not os.path.isdir(bag_dir):
-                continue
-            
+        print(f"[INFO] Recursively searching for bag data in '{self.root_dir}'...")
+
+        # os.walkを使ってディレクトリを再帰的に探索
+        for dirpath, dirnames, filenames in os.walk(self.root_dir):
             try:
-                # SingleStreamBagIterableDatasetにはtransformはここでは渡さない（MultiStreamでまとめて行うため）
-                # ただし、SingleStreamBagIterableDataset内でNumPyの型変換などを行う場合は渡す
-                # 今回はSingleStreamBagIterableDatasetのtransformは基本的なものとし、
-                # 最終的なTensor化はMultiStreamConcatIterableDatasetのtransformで行う想定
-                single_dataset = SequenceStreamDataset(bag_dir, self.sequence_length, transform=None)
-                # _is_valid_bagを確認して、有効なものだけを追加
+                # このディレクトリでデータセットの作成を試みる
+                # SequenceStreamDatasetのコンストラクタ内で、必要なファイルが存在するか等の検証が行われる想定
+                single_dataset = SequenceStreamDataset(dirpath, self.sequence_length, transform=None)
+                
+                # _is_valid_bagプロパティで、有効なデータセットか確認
                 if single_dataset._is_valid_bag:
+                    print(f"[INFO] Found valid bag data at: {dirpath}")
                     bag_datasets.append(single_dataset)
-                else:
-                    # _is_valid_bagがFalseの場合、すでにWarningが出ているので何もしない
-                    pass
-            except FileNotFoundError as e:
-                print(f"Skipping {bag_dir} due to missing files: {e}")
-            except ValueError as e:
-                print(f"Skipping {bag_dir} due to data error: {e}")
+                # else の場合は、SequenceStreamDataset内で警告が出力されるか、
+                # または単に無効なデータセットとして扱われる
+
+            except (FileNotFoundError, ValueError) as e:
+                # FileNotFoundError: 必須ファイルがない場合
+                # ValueError: データに問題がある場合（例：データが短すぎるなど）
+                # これらのエラーは、現在のディレクトリが有効なデータセットではないことを示すため、
+                # スキップして次の探索を続ける
+                # print(f"Skipping {dirpath} due to an error: {e}") # 詳細なログが必要な場合は有効化
+                pass
         
-        print(f"[INFO] Loaded {len(bag_datasets)} valid bags for multi-stream iteration.")
+        print("-" * 50)
+        if not bag_datasets:
+            print("[INFO] No valid bag datasets were found.")
+        else:
+            # 読み込み順序の再現性を確保するために、ディレクトリパスでソート
+            bag_datasets.sort(key=lambda ds: ds.bag_dir)
+            print(f"[INFO] Loaded {len(bag_datasets)} valid bags for multi-stream iteration.")
+        print("-" * 50)
+
         return bag_datasets
 
     def __iter__(self):
@@ -188,7 +194,7 @@ class ConcatStreamDataset(IterableDataset):
 
         # 各ワーカー（ストリーム）のイテレータと、現在担当しているbagのインデックスを保持
         worker_iterators = []
-        worker_bag_indices = [] # 各ワーカーが現在担当している bag_datasets のインデックス
+        worker_bag_indices = []
         
         # 全てのbagのインデックスをシャッフルし、各ワーカーに割り当てる
         shuffled_bag_indices = list(range(len(self.bag_datasets)))
@@ -201,13 +207,10 @@ class ConcatStreamDataset(IterableDataset):
                 worker_iterators.append(iter(self.bag_datasets[bag_idx]))
                 worker_bag_indices.append(bag_idx)
             else:
-                # bagの数よりbatch_sizeが大きい場合、残りはNoneで埋める
                 worker_iterators.append(None)
                 worker_bag_indices.append(None)
         
-        # 循環キューのカーソル（次に割り当てるシャッフル済みbagのインデックス）
         next_shuffled_bag_cursor = self.batch_size
-
         N = self.sequence_length
 
         while True:
@@ -221,45 +224,31 @@ class ConcatStreamDataset(IterableDataset):
                 bag_idx = worker_bag_indices[i]
 
                 if worker_iterators[i] is None:
-                    # このストリームはすでに終了しているか、最初から割り当てられていない
-                    # ダミーサンプルを追加
-                    if not self.bag_datasets: # データがない場合はスキップ
-                        continue
+                    if not self.bag_datasets: continue
                     ref_scan_shape = (N,) + self.bag_datasets[0].scans.shape[1:]
                     ref_action_shape = (N,) + self.bag_datasets[0].actions.shape[1:]
                     
                     batch['scan_seq'].append(np.zeros(ref_scan_shape, dtype=np.float32))
                     batch['prev_action_seq'].append(np.zeros(ref_action_shape, dtype=np.float32))
                     batch['target_action_seq'].append(np.zeros(ref_action_shape, dtype=np.float32))
-                    batch['is_first_seq'].append(True) # ダミーなので常にリセット
+                    batch['is_first_seq'].append(True)
                     continue
 
                 try:
-                    # 単一ストリームから次のサンプルを取得
                     sample = next(worker_iterators[i])
                     num_active_streams += 1
                     
-                    # データ拡張の適用
                     if self.augmentor and bag_idx is not None and bag_idx in episode_plans:
-                        plan = episode_plans[bag_idx]
-                        sample = self.augmentor.apply(sample, plan)
+                        sample = self.augmentor.apply(sample, episode_plans[bag_idx])
                     
-                    # transformの適用（Tensor化など）
                     if self.transform:
                         sample = self.transform(sample)
 
-                    # is_first_seqはSingleStreamBagIterableDatasetから取得したものを使用
-                    is_first_seq = sample['is_first_seq'] # bool値
-
                     for key in ['scan_seq', 'prev_action_seq', 'target_action_seq']:
                         batch[key].append(sample[key])
-                    batch['is_first_seq'].append(is_first_seq)
+                    batch['is_first_seq'].append(sample['is_first_seq'])
 
                 except StopIteration:
-                    # 現在のbagからのデータが尽きた場合
-                    # 次のbagを割り当てるか、全bagを使い切っていたらストリームを終了させる
-                    
-                    # 次のシャッフルされたbagのインデックスを取得
                     if next_shuffled_bag_cursor < len(shuffled_bag_indices):
                         new_bag_idx = shuffled_bag_indices[next_shuffled_bag_cursor]
                         next_shuffled_bag_cursor += 1
@@ -267,32 +256,23 @@ class ConcatStreamDataset(IterableDataset):
                         worker_bag_indices[i] = new_bag_idx
                         worker_iterators[i] = iter(self.bag_datasets[new_bag_idx])
                         
-                        # 新しいbagの最初のサンプルを再試行して取得
                         try:
                             sample = next(worker_iterators[i])
                             num_active_streams += 1
 
-                            # データ拡張の適用
                             if self.augmentor and new_bag_idx is not None and new_bag_idx in episode_plans:
-                                plan = episode_plans[new_bag_idx]
-                                sample = self.augmentor.apply(sample, plan)
+                                sample = self.augmentor.apply(sample, episode_plans[new_bag_idx])
                             
-                            # transformの適用（Tensor化など）
                             if self.transform:
                                 sample = self.transform(sample)
 
-                            is_first_seq = sample['is_first_seq'] # bool値
-
                             for key in ['scan_seq', 'prev_action_seq', 'target_action_seq']:
                                 batch[key].append(sample[key])
-                            batch['is_first_seq'].append(is_first_seq)
+                            batch['is_first_seq'].append(sample['is_first_seq'])
 
                         except StopIteration:
-                            # 割り当てられた新しいbagも空（非常に短い場合など）
-                            # このストリームは終了
                             worker_iterators[i] = None
                             worker_bag_indices[i] = None
-                            # ダミーサンプルを追加
                             if not self.bag_datasets: continue
                             ref_scan_shape = (N,) + self.bag_datasets[0].scans.shape[1:]
                             ref_action_shape = (N,) + self.bag_datasets[0].actions.shape[1:]
@@ -301,11 +281,8 @@ class ConcatStreamDataset(IterableDataset):
                             batch['target_action_seq'].append(np.zeros(ref_action_shape, dtype=np.float32))
                             batch['is_first_seq'].append(True)
                     else:
-                        # 全てのbagが処理され、新しいbagを割り当てられない
-                        # このストリームは終了
                         worker_iterators[i] = None
                         worker_bag_indices[i] = None
-                        # ダミーサンプルを追加
                         if not self.bag_datasets: continue
                         ref_scan_shape = (N,) + self.bag_datasets[0].scans.shape[1:]
                         ref_action_shape = (N,) + self.bag_datasets[0].actions.shape[1:]
@@ -314,32 +291,20 @@ class ConcatStreamDataset(IterableDataset):
                         batch['target_action_seq'].append(np.zeros(ref_action_shape, dtype=np.float32))
                         batch['is_first_seq'].append(True)
 
-            # アクティブなストリームが一つもなければループを終了
             if num_active_streams == 0:
                 break
 
-            # バッチ内のデータをPyTorch Tensorに変換してyield
             final_batch = {}
             for key, val in batch.items():
-                if key == 'is_first_seq':
-                    # is_first_seq は bool なので、torch.bool 型でテンソル化
-                    final_batch[key] = torch.tensor(val, dtype=torch.bool)
-                elif isinstance(val, list) and val and isinstance(val[0], torch.Tensor):
-                    # val が既に Tensor のリストの場合 (transformによってTensor化されている場合)
+                if not val: continue
+                if isinstance(val[0], torch.Tensor):
                     final_batch[key] = torch.stack(val)
-                elif isinstance(val, list) and val and isinstance(val[0], np.ndarray):
-                    # val が NumPy array のリストの場合 (transformがNoneまたはNumPyを返す場合)
-                    # ★★★ ここで NumPy 配列のリストを単一の NumPy 配列に結合し、float32にキャスト
-                    combined_np_array = np.array(val, dtype=np.float32)
-                    # その後、結合された NumPy 配列から Tensor を作成
-                    final_batch[key] = torch.from_numpy(combined_np_array)
+                elif isinstance(val[0], np.ndarray):
+                    final_batch[key] = torch.from_numpy(np.array(val, dtype=np.float32))
+                elif key == 'is_first_seq':
+                     final_batch[key] = torch.tensor(val, dtype=torch.bool)
                 else:
-                    # その他のケース（例えば、NumPy配列ではないがテンソルにしたい数値リストなど）
-                    # 万が一に備えて dtype を指定
                     final_batch[key] = torch.tensor(val, dtype=torch.float32)
-            # is_first_seqはすでにTensorになっているのでそのまま
-            if isinstance(final_batch['is_first_seq'], list): # Transformによってはまだリストの場合がある
-                final_batch['is_first_seq'] = torch.tensor(final_batch['is_first_seq'], dtype=torch.bool)
-
 
             yield final_batch
+
