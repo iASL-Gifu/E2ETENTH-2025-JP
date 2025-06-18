@@ -19,7 +19,7 @@ class LidarStem(nn.Module):
         self.norm1 = nn.BatchNorm1d(out_channels)
         self.act1 = nn.GELU()
         
-        self.conv2 = nn.Conv1d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
+        self.downsample_conv = nn.Conv1d(out_channels, out_channels, kernel_size=2, stride=2)
         self.norm2 = nn.BatchNorm1d(out_channels)
         
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -37,7 +37,7 @@ class LidarStem(nn.Module):
         x = self.norm1(x)
         x = self.act1(x)
         
-        x = self.conv2(x)
+        x = self.downsample_conv(x)
         x = self.norm2(x)
         
         # Transformerブロックで扱いやすいように次元を入れ替える (B, C, L) -> (B, L, C)
@@ -67,26 +67,28 @@ class DownsampleLayer1d(nn.Module):
 class Stage1d(nn.Module):
     """
     正規化層を内部に持つ、自己完結したステージ。
+    各ステージの冒頭で一度だけダウンサンプリングを行う。
     """
-    def __init__(self, in_channels: int, out_channels: int, num_blocks: int, partition_size: int, drop_path_rates: list, downsample: bool, dim_head: int, norm_layer: nn.Module):
+    def __init__(self, in_channels: int, out_channels: int, num_blocks: int, partition_size: int, drop_path_rates: list, dim_head: int, norm_layer: nn.Module):
         super().__init__()
         
-        if downsample:
-            self.downsample = DownsampleLayer1d(in_channels, out_channels)
-        else:
-            self.downsample = nn.Identity()
-            assert in_channels == out_channels
+        # ステージの冒頭でダウンサンプリング層を定義
+        # Stage1dに入力された時点でのin_channelsとout_channelsを使用
+        self.downsample = DownsampleLayer1d(in_channels, out_channels)
             
         blocks = []
         for i in range(num_blocks):
+            # Stage1dのダウンサンプリング後のチャンネル数(out_channels)をブロックの入力とする
             blocks.append(PartitionAttention1d(out_channels, 'window', partition_size, dim_head=dim_head, drop_path=drop_path_rates[i*2]))
             blocks.append(PartitionAttention1d(out_channels, 'grid', partition_size, dim_head=dim_head, drop_path=drop_path_rates[i*2+1]))
         
         self.blocks = nn.Sequential(*blocks)
-        self.norm = norm_layer  # 受け取った正規化層を保持
+        self.norm = norm_layer  
         
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.downsample(x)
+        # ステージの最初にダウンサンプリングを実行
+        x = self.downsample(x) 
+        # その後、全てのブロックを適用
         x = self.blocks(x)
         x = self.norm(x)  
         return x
@@ -100,25 +102,33 @@ class MaxT1d(nn.Module):
     def __init__(self, cfg: DictConfig):
         super().__init__()
         
-        # JITが理解できるPythonネイティブの型に変換
         out_indices_list = list(cfg.out_indices)
         out_keys_list = list(cfg.out_keys)
         
         num_stages = len(cfg.dims)
+        # LidarStemの出力は target_seq_len / 2 になるように変更
+        # Stemのout_channelsは最初のステージのin_chと同じになるように調整
         self.stem = LidarStem(cfg.input_channels, cfg.dims[0], cfg.target_seq_len)
-        partition_sizes = [max(cfg.target_seq_len // (2**i) // cfg.partition_ratio, 1) for i in range(num_stages)]
+
+        # partition_sizesの計算も、stemで1回ダウンサンプリングされていることを考慮
+        # LidarStemの出力系列長は target_seq_len / 2
+        initial_seq_len_after_stem = cfg.target_seq_len // 2
+        # 各ステージでの系列長は (initial_seq_len_after_stem / (2^i)) となる
+        partition_sizes = [max(initial_seq_len_after_stem // (2**i) // cfg.partition_ratio, 1) for i in range(num_stages)]
+        
         dpr = [x.item() for x in torch.linspace(0, cfg.drop_path_rate, sum(cfg.num_blocks) * 2)]
         dim_head = cfg.get('dim_head', 32)
         
         self.stages = nn.ModuleList()
         block_cursor = 0
         for i in range(num_stages):
-            in_ch = cfg.dims[i-1] if i > 0 else cfg.dims[0]
+            # 最初のステージ (i=0) のin_chはLidarStemのout_channels (cfg.dims[0])
+            # それ以降のステージ (i>0) のin_chは前のステージのout_ch (cfg.dims[i-1])
+            in_ch = cfg.dims[i] if i == 0 else cfg.dims[i-1] # 修正: 最初のin_chはcfg.dims[0]
             out_ch = cfg.dims[i]
-            downsample = (i > 0)
+            # downsampleは常にTrueなので、引数から削除
             dpr_slice = dpr[block_cursor : block_cursor + cfg.num_blocks[i] * 2]
             
-            # 出力するステージではLayerNormを、それ以外ではIdentityを適用
             norm_layer: nn.Module
             if i in out_indices_list:
                 norm_layer = nn.LayerNorm(out_ch)
@@ -126,25 +136,29 @@ class MaxT1d(nn.Module):
                 norm_layer = nn.Identity()
             
             self.stages.append(
-                Stage1d(in_ch, out_ch, cfg.num_blocks[i], partition_sizes[i], dpr_slice, downsample, dim_head=dim_head, norm_layer=norm_layer)
+                Stage1d(in_ch, out_ch, cfg.num_blocks[i], partition_sizes[i], dpr_slice, dim_head=dim_head, norm_layer=norm_layer) # downsample引数を削除
             )
             block_cursor += cfg.num_blocks[i] * 2
 
-        # ▼▼▼ 分類モード用の属性を全て削除 ▼▼▼
-        # self.norm, self.pool, self.head は不要
-
-        # ▼▼▼ 特徴量抽出モード用の属性のみを保持 ▼▼▼
         self.out_indices = out_indices_list
         self.idx_to_key_map: Dict[int, str] = {idx: key for idx, key in zip(out_indices_list, out_keys_list)}
 
     def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
-        # ▼▼▼ forwardメソッドからif/elseを完全に削除 ▼▼▼
         x = self.stem(x)
         
         features: Dict[str, torch.Tensor] = {}
+        # C0はstemの出力となるため、ループに入る前にfeaturesに追加
+        # ただし、out_indicesに0が含まれていなければ追加しない
+        if 0 in self.out_indices:
+            key_for_stem = self.idx_to_key_map[0]
+            features[key_for_stem] = x
+
         for i, stage in enumerate(self.stages):
-            x = stage(x)
-            if i in self.out_indices:
-                key = self.idx_to_key_map[i]
+            
+            x = stage(x) # 各ステージはダウンサンプリングを行う
+
+            if (i + 1) in self.out_indices: # Stage0の出力はC1、Stage1の出力はC2など
+                key = self.idx_to_key_map[i + 1] # out_indices_listのインデックスとステージ番号のずれを調整
                 features[key] = x
+        
         return features
