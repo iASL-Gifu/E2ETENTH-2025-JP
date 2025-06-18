@@ -1,0 +1,12 @@
+<launch>
+  
+  <!-- laser scan histogram -->
+  <node pkg="laser_scan_histogram" 
+        exec="laser_scan_to_image_histogram"
+        name="laser_scan_to_image_histogram"
+        output="screen">
+        <remap from="/scan" to="/scan_filtered"/>
+        <remap from="/histogram_image" to="/visualize/scan_histogram_image"/>
+  </node>
+
+</launch>

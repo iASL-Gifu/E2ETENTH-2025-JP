@@ -1,0 +1,11 @@
+/**:
+  ros__parameters:
+    invert_x_axis: false
+    invert_y_axis: false
+    center_zero_x: true
+    center_zero_y: true
+    x_axis_min: -1.0
+    x_axis_max: 1.0
+    y_axis_min: -1.0
+    y_axis_max: 1.0
+    max_history_points: 30

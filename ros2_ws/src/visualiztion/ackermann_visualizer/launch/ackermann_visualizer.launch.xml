@@ -1,0 +1,18 @@
+<launch>
+  
+
+  <arg name="ackermann_visualizer_param"  default="$(find-pkg-share ackermann_visualizer)/config/ackerman_visualizer.param.yaml"/>
+  
+  <node pkg="ackermann_visualizer" 
+        exec="ackermann_visualizer_node"
+        name="ackermann_visualizer_node"
+        output="screen">
+
+    <param from="$(var ackermann_visualizer_param)"/>
+
+    <remap from="/ackermann_cmd_vel" to="/jetracer/cmd_drive"/>
+    <remap from="/visualize/ackermann_plot_image" to="visualize/ackermann_plot_image"/>
+
+  </node>
+
+</launch>
