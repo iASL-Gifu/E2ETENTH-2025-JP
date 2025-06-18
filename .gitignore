@@ -1,6 +1,8 @@
 build/
 install/
 log/
+ckpts/
+ckpts*/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
