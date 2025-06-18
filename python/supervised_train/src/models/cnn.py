@@ -27,13 +27,12 @@ class TinyLidarNet(nn.Module):
         self.fc4 = nn.Linear(10, output_dim)
 
     def forward(self, x):
-        # 入力xの想定形状: (Batch, SequenceLength, Length) または (Batch, Length)
         
         # もし入力が3次元 (B, T, L) なら、最後のタイムステップのデータだけを取り出す
         if x.dim() == 3:
             # (B, T, L) -> (B, L)
             x = x[:, -1, :] 
-        
+
         x = x.unsqueeze(1)  # (B, 1, L) に変換
         x = F.relu(self.conv1(x))
         x = F.relu(self.conv2(x))
@@ -77,8 +76,10 @@ class TinyLidarLstmNet(nn.Module):
         batch_size, seq_len, length = x.shape
         
         # --- CNN Feature Extraction (共通部分) ---
+        # (B, T, L) -> (B*T, 1, L)
         x = x.view(batch_size * seq_len, length)
         x = x.unsqueeze(1)
+
         x = F.relu(self.conv1(x))
         x = F.relu(self.conv2(x))
         x = F.relu(self.conv3(x))
@@ -225,10 +226,9 @@ class TinyLidarActionNet(nn.Module):
         cnn_features = cnn_features.view(cnn_features.size(0), -1)
 
         # --- 特徴量の連結 ---
-        # pre_actionの形状が (batch_size,) の場合、(batch_size, 1) に変換
-        if pre_action.dim() == 1:
-            pre_action = pre_action.unsqueeze(-1)
-        
+        if pre_action.dim() == 3:
+            pre_action = pre_action.squeeze(1)
+
         # CNNで抽出した特徴量と、前の行動(pre_action)を次元1で連結します
         combined_features = torch.cat((cnn_features, pre_action), dim=1)
 

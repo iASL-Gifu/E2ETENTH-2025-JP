@@ -2,6 +2,7 @@ build/
 install/
 log/
 datasets/
+benchmarks/
 ckpts/
 outputs/
 # Byte-compiled / optimized / DLL files

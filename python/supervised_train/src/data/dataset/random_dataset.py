@@ -65,43 +65,49 @@ class SequenceRndDataset(Dataset):
 class ConcatRndDataset(Dataset):
     """
     複数のSingleSequenceDatasetインスタンスを結合するデータセット。
+    指定されたroot_dirを再帰的に探索し、条件を満たすディレクトリからデータを読み込む。
     """
     def __init__(self, root_dir, sequence_length=10, transform=None):
         self.sequence_length = sequence_length
-        self.transform = transform # transformは各SingleSequenceDatasetに渡す
+        self.transform = transform
         
         self.datasets = []
         root_dir = os.path.expanduser(root_dir)
 
-        # root_dir内の各bag_nameディレクトリに対してSingleSequenceDatasetを作成
-        for seq_name in sorted(os.listdir(root_dir)):
-            seq_dir = os.path.join(root_dir, seq_name)
-            if not os.path.isdir(seq_dir):
-                continue
-            
-            try:
-                # 各SingleSequenceDatasetにtransformを渡す
-                single_dataset = SequenceRndDataset(seq_dir, sequence_length, transform)
-                if len(single_dataset) > 0: # サンプルが生成された場合のみ追加
-                    self.datasets.append(single_dataset)
-            except FileNotFoundError as e:
-                print(f"Skipping {seq_dir} due to missing files: {e}")
-            except ValueError as e:
-                print(f"Skipping {seq_dir} due to data error: {e}")
+        print(f"[INFO] Recursively searching for sequence data in '{root_dir}'...")
+
+        # os.walkを使ってディレクトリを再帰的に探索
+        for dirpath, dirnames, filenames in os.walk(root_dir):
+            # 必須ファイルが現在のディレクトリに存在するかチェック
+            required_files = ['scans.npy', 'steers.npy', 'speeds.npy']
+            if all(f in filenames for f in required_files):
+                print(f"[INFO] Found valid sequence data at: {dirpath}")
+                try:
+                    # 条件を満たしたディレクトリでSequenceRndDatasetを作成
+                    single_dataset = SequenceRndDataset(dirpath, sequence_length, transform)
+                    if len(single_dataset) > 0: # サンプルが生成された場合のみ追加
+                        self.datasets.append(single_dataset)
+                    else:
+                        print(f"[INFO] Skipping {dirpath} because it's too short to create any samples.")
+                except Exception as e:
+                    print(f"Skipping {dirpath} due to an error: {e}")
 
         # PyTorchのConcatDatasetを利用して、複数のデータセットを結合
         if not self.datasets:
             print("[INFO] No valid datasets found to combine.")
-            self.combined_dataset = []
+            self.combined_dataset = [] # エラーを防ぐために空リストをセット
         else:
             self.combined_dataset = ConcatDataset(self.datasets)
 
-        print(f"[INFO] Created {len(self.combined_dataset)} non-overlapping sequence-to-sequence samples with length {self.sequence_length}.")
-        print("[INFO] Remainder blocks shorter than sequence_length were discarded.")
+        print("-" * 50)
+        print(f"[INFO] Created a total of {len(self.combined_dataset)} samples from {len(self.datasets)} sequence directories.")
+        if len(self.datasets) > 0:
+            print("[INFO] Remainder blocks shorter than sequence_length were discarded.")
+        print("-" * 50)
+
 
     def __len__(self):
         return len(self.combined_dataset)
 
     def __getitem__(self, idx):
         return self.combined_dataset[idx]
-    

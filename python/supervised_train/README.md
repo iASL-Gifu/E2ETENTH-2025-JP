@@ -39,7 +39,7 @@ python3 extract_topics.py \
 --scan_topic \
 --cmd_topic\
 ```
-## train
+## train on rosbag dataset
 config/train_cnn.yamlを編集し、実行します。
 *注意　これは仮想環境で実行します。
 ```bash
@@ -49,5 +49,32 @@ data_path=./datasets/ \
 ckpt_path=./ckpts/ \
 sequence_length=<length> \
 random_ratio=0.5 \
+batch_size=8
+```
 
+## train on simulator dataset
+
+### 1. collect data from F1tenth-gym 
+```bash
+## using pure pursuit controller 
+python3 collect_data_sim.py \
+num_sets=1 \
+output_dir=./datasets/sim/<run_name>
+```
+
+### 2. train on collected sim dataset
+```bash
+python3 train_cnn.py \
+model_name=<model> \
+data_path=./datasets/ \
+ckpt_path=./ckpts/ \
+sequence_length=<length>  \
+random_ratio=0.5 \
+batch_size=8
+```
+
+### 3. benchmark on simulator
+```bash
+python3 benchmark_sim.py \
+ckpt_path=./ckpts/
 ```
