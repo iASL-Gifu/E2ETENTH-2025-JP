@@ -1,18 +1,20 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from omegaconf import DictConfig, OmegaConf
 from typing import Union, Dict
 import time
 
-from layers.maxt1d import MaxT1d
-from layers.fpn1d import PAFPN1d
-from layers.head import _MultiScaleHead
+from .layers.maxt1d import MaxT1d
+from .layers.fpn1d import PAFPN1d
+from .layers.head import _MultiScaleHead
 
 
 def get_model_cfg(
     model_size: str, 
     backbone_stages: int = 4, 
-    fpn_stages: int = 4
+    fpn_stages: int = 4,
+    predict_uncertainty: bool = True
 ) -> DictConfig:
     """ 
     モデルのサイズとステージ数から設定を生成する。
@@ -90,7 +92,8 @@ def get_model_cfg(
             'head': { 
                 'name': 'MultiScaleRegressionHead', 'out_features': 2, 
                 'mid_features_ratio': 0.5, 'in_channels': fpn_in_channels_map,
-                'strides_map': strides_map, # ★ここが新しい追加点★
+                'strides_map': strides_map,
+                'predict_uncertainty': predict_uncertainty, 
             }
         }
     }
@@ -102,27 +105,74 @@ class LidarRegressor(nn.Module):
         super().__init__()
         
         self.cfg = cfg
+        self.predict_uncertainty = cfg.model.head.predict_uncertainty # フラグを保存
         
         self.backbone = MaxT1d(cfg.model.backbone)
         self.neck = PAFPN1d(cfg.model.neck)
         
         head_cfg = cfg.model.head
-        if head_cfg.name == 'MultiScaleRegressionHead':
-            self.head = _MultiScaleHead(head_cfg)
-        else:
-            raise ValueError(f"Unknown head name: {head_cfg.name}")
+        self.head = _MultiScaleHead(head_cfg) # _MultiScaleHead もフラグを認識するように修正済み
+
+        num_fpn_stages = len(cfg.model.neck.in_keys)
+        # _MultiScaleHead からの各ステージの出力次元
+        per_stage_output_dim = cfg.model.head.out_features * 2 if self.predict_uncertainty else cfg.model.head.out_features
         
-    def forward(self, x: torch.Tensor) -> Union[torch.Tensor, Dict[str, torch.Tensor]]:
+        # 最終的な結合層の入力次元
+        combined_input_dim = num_fpn_stages * per_stage_output_dim
+        
+        # 最終的な出力次元 (LidarRegressor の forward の戻り値)
+        final_output_dim = cfg.model.head.out_features * 2 if self.predict_uncertainty else cfg.model.head.out_features
+
+        self.final_regression_layer = nn.Sequential(
+            nn.Linear(combined_input_dim, combined_input_dim // 2),
+            nn.SiLU(inplace=True), 
+            nn.Linear(combined_input_dim // 2, final_output_dim) 
+        )
+        self.out_features = cfg.model.head.out_features 
+
+    def forward(self, x: torch.Tensor) -> Union[Dict[str, torch.Tensor], torch.Tensor]:
         all_features = self.backbone(x)
-        
-        # self.neck.in_keys は get_model_cfg で適切に 'C1', 'C2', ... の形式で設定されている
         neck_input = {key: all_features[key] for key in self.neck.in_keys}
         neck_features = self.neck(neck_input)
         
-        predictions = self.head(neck_features)
+        multi_scale_predictions = self.head(neck_features) # dict[str, dict[str, tensor]]
         
-        return predictions
-    
+        combined_values = []
+        for key in self.neck.in_keys:
+            # _MultiScaleHead の decode_output が既に (B, 1) を返しているため、
+            # ここではそのまま結合すれば良い。
+            combined_values.append(multi_scale_predictions[key]['steer_mu'])
+            combined_values.append(multi_scale_predictions[key]['speed_mu'])
+            if self.predict_uncertainty:
+                combined_values.append(multi_scale_predictions[key]['steer_log_sigma_squared'])
+                combined_values.append(multi_scale_predictions[key]['speed_log_sigma_squared'])
+        
+        combined_input_for_final = torch.cat(combined_values, dim=1)
+        
+        final_output_raw = self.final_regression_layer(combined_input_for_final)
+        
+        # 最終出力を mu と log_sigma_squared に分割（predict_uncertainty に応じて）
+        # ここを修正: スライスで次元を保持
+        final_steer_mu_raw = final_output_raw[:, 0:1] # (batch_size, 1)
+        final_speed_mu_raw = final_output_raw[:, 1:2] # (batch_size, 1)
+        
+        final_steer_mu = self.head.steer_activation(final_steer_mu_raw)
+        final_speed_mu = F.relu(final_speed_mu_raw)
+        
+        if self.predict_uncertainty:
+            final_steer_log_sigma_squared = final_output_raw[:, 2:3] # (batch_size, 1)
+            final_speed_log_sigma_squared = final_output_raw[:, 3:4] # (batch_size, 1)
+
+            return {
+                'steer_mu': final_steer_mu,
+                'speed_mu': final_speed_mu,
+                'steer_log_sigma_squared': final_steer_log_sigma_squared,
+                'speed_log_sigma_squared': final_speed_log_sigma_squared
+            }
+        else:
+            
+            return torch.cat([final_steer_mu, final_speed_mu], dim=1)
+
 if __name__ == "__main__":
     print("--- LidarRegressor Model Test ---")
 

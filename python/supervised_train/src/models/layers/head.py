@@ -11,65 +11,76 @@ class _MultiScaleHead(nn.Module):
         self.heads_list = nn.ModuleList() 
         self.head_keys = [] 
         
-        # ストライド情報を保持
         self.strides_map = cfg.strides_map
         if not self.strides_map:
             raise ValueError("strides_map must be provided in head config for multi-scale decoding.")
+        
+        # 新しいフラグをインスタンス変数として保存
+        self.predict_uncertainty = cfg.get('predict_uncertainty', True) # デフォルト値を設定
+        
+        # 出力次元を決定
+        # 信頼性予測が有効なら out_features * 2 (mu + log_sigma^2)
+        # 無効なら out_features (mu のみ)
+        output_dim = cfg.out_features * 2 if self.predict_uncertainty else cfg.out_features
         
         for key, in_ch in cfg.in_channels.items():
             mid_features = int(in_ch * cfg.get('mid_features_ratio', 0.5))
             
             self.heads_list.append(
                 nn.Sequential(
-                    nn.AdaptiveAvgPool1d(1), # (B, L, C) -> (B, 1, C)
-                    nn.Flatten(),             # (B, C)
+                    nn.AdaptiveAvgPool1d(1), 
+                    nn.Flatten(),             
                     nn.Linear(in_ch, mid_features),
                     nn.SiLU(inplace=True),
-                    nn.Linear(mid_features, cfg.out_features) # out_features は SteerとSpeedの2つを想定
+                    nn.Linear(mid_features, output_dim) # output_dim を使用
                 )
             )
             self.head_keys.append(key)
             
         self.steer_activation = nn.Tanh()
+        self.out_features = cfg.out_features 
 
-    def decode_output(self, raw_pred: torch.Tensor, stride: int) -> Dict[str, torch.Tensor]:
-        steer_raw = raw_pred[:, 0]
-        speed_raw = raw_pred[:, 1]
+    # decode_output の引数を修正
+    def decode_output(self, raw_pred: torch.Tensor) -> Dict[str, torch.Tensor]:
+        if self.predict_uncertainty:
+            mu_pred = raw_pred[:, :self.out_features]
+            log_sigma_squared_pred = raw_pred[:, self.out_features:]
+        else:
+            mu_pred = raw_pred
+            log_sigma_squared_pred = None
 
-        steer_out = self.steer_activation(steer_raw * stride)
+        # ここを修正: unsqueeze(1) を追加して (B,) -> (B, 1) にする
+        steer_mu = mu_pred[:, 0].unsqueeze(1) # (batch_size, 1)
+        speed_mu = mu_pred[:, 1].unsqueeze(1) # (batch_size, 1)
         
-        steer_out = self.steer_activation(steer_raw)
-        speed_out = F.relu(speed_raw)
+        steer_out = self.steer_activation(steer_mu) 
+        speed_out = F.relu(speed_mu)
         
-        return {
-            'steer': steer_out,
-            'speed': speed_out
+        output_dict = {
+            'steer_mu': steer_out,
+            'speed_mu': speed_out
         }
+        
+        if self.predict_uncertainty:
+            output_dict['steer_log_sigma_squared'] = log_sigma_squared_pred[:, 0].unsqueeze(1) # (batch_size, 1)
+            output_dict['speed_log_sigma_squared'] = log_sigma_squared_pred[:, 1].unsqueeze(1) # (batch_size, 1)
+            
+        return output_dict
 
-    def forward(self, features: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]: # 戻り値の型ヒントも修正
+
+    def forward(self, features: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, torch.Tensor]]:
         outputs = {}
         
-        # features は PAFPN1d の出力であり、各キー ('C1', 'C2' など) に対応する
-        # 特徴マップを含むディクショナリであると想定
-        
         for i, head_module in enumerate(self.heads_list):
-            key = self.head_keys[i] # 例: 'C1', 'C2', ...
-            
-            # PAFPN1dがそのキーの特徴量を返していることを前提とする
+            key = self.head_keys[i] 
             if key not in features:
                 raise KeyError(f"Feature key '{key}' expected by _MultiScaleHead but not found in FPN outputs.")
             
             x = features[key] 
 
-            # 各ヘッドで予測を生成 (B, out_features)
             raw_pred = head_module(x) 
             
-            # ストライドを取得
-            stride = self.strides_map.get(key)
-            if stride is None:
-                raise ValueError(f"Stride not found for key: {key}. Check cfg.strides_map.")
-
-            outputs[key] = raw_pred
-            
+            decoded_output = self.decode_output(raw_pred)
+            outputs[key] = decoded_output
             
         return outputs

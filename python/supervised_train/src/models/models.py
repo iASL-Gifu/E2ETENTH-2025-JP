@@ -60,7 +60,7 @@ def load_cnn_model(model_name, input_dim, output_dim, compile_model: bool = Fals
 
     return model
     
-def load_maxt_model(size: str, backbone_stages: int = 3, fpn_stages: int = 3, compile_model: bool = False):
+def load_maxt_model(size: str, backbone_stages: int = 3, fpn_stages: int = 3, predict_uncertainty: bool = False, compile_model: bool = False):
     """
     MAxTモデルをロードし、オプションでtorch.compileでコンパイルする関数。
     Args:
@@ -71,7 +71,7 @@ def load_maxt_model(size: str, backbone_stages: int = 3, fpn_stages: int = 3, co
     Returns:
         torch.nn.Module: ロードまたはコンパイルされたモデルインスタンス。
     """
-    cfg = get_model_cfg(size, backbone_stages, fpn_stages)
+    cfg = get_model_cfg(size, backbone_stages, fpn_stages, predict_uncertainty=predict_uncertainty)
     model = LidarRegressor(cfg)
 
     # torch.compile の適用

@@ -2,7 +2,6 @@ from typing import Optional, Tuple
 import torch
 import torch as th
 import torch.nn as nn
-import torch.nn.functional as F
 
 class DWSConvLSTM1d(nn.Module):
     """LSTM with (depthwise-separable) Conv option in NCHW [channel-first] format, but for 1D data.

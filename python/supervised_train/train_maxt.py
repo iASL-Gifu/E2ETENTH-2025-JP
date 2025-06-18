@@ -3,11 +3,13 @@ import os
 import hydra
 from omegaconf import DictConfig, OmegaConf
 from tqdm import tqdm  # tqdmをインポート
+import torch.nn.functional as F # MSELossのためにF.mse_lossをインポート
 
 from src.models.models import load_maxt_model
 from src.data.dataset.dataset import HybridLoader
 from src.data.dataset.transform import SeqToSeqTransform, StreamAugmentor
 from src.models.layers.state_manager import RnnStateManager
+# from src.utils.loss import heteroscedastic_loss  # ヘテロスケダスティック損失は不要になるので削除
 
 @hydra.main(config_path="config", config_name="train_maxt", version_base="1.2")
 def main(cfg: DictConfig) -> None:
@@ -18,7 +20,7 @@ def main(cfg: DictConfig) -> None:
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     data_path = hydra.utils.to_absolute_path(cfg.data_path)
 
-    # --- データセットとデータローダーの準備 ---
+    # --- データセットとデータローダーの準備 --- (変更なし)
     transform_random = SeqToSeqTransform(
         range_max=cfg.range_max,
         downsample_num=cfg.input_dim,
@@ -51,8 +53,13 @@ def main(cfg: DictConfig) -> None:
     )
 
     # --- モデル、損失関数、最適化手法の準備 ---
-    model = load_maxt_model(size="tiny").to(device)
-    criterion = torch.nn.SmoothL1Loss()
+    # predict_uncertainty フラグは削除
+    model = load_maxt_model(size="tiny").to(device) # 引数から predict_uncertainty を削除
+
+    # 常にMSELossを使用
+    print("Using MSE Loss for training.")
+    criterion = torch.nn.MSELoss() 
+        
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
 
     is_rnn = False
@@ -78,17 +85,13 @@ def main(cfg: DictConfig) -> None:
         if is_rnn:
             state_manager.reset_states(cfg.batch_size)
 
-        # --- ▼▼▼ tqdmによる変更箇所 ▼▼▼ ---
-        # tqdmでデータローダーをラップし、プログレスバーを表示
-        # desc: プログレスバーの前に表示するテキスト
-        # leave=False: ループ終了時にプログレスバーを消去し、コンソールを綺麗に保つ
         pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{cfg.num_epochs}", leave=False)
         
-        for i, batch in enumerate(pbar): # enumerateを使用してバッチ数を取得
-            # --- ▲▲▲ tqdmによる変更箇所 ▲▲▲ ---
-            
+        for i, batch in enumerate(pbar):
             scan_seq = batch['scan_seq'].to(device)
             target_seq = batch['target_action_seq'].to(device)
+            steer_true = target_seq[:, -1, 0] # steer の真値
+            speed_true = target_seq[:, -1, 1] # speed の真値
             is_first_seq = batch['is_first_seq'].to(device)
 
             if is_rnn:
@@ -96,26 +99,23 @@ def main(cfg: DictConfig) -> None:
                 action, hidden_state = model(scan_seq, hidden=prev_hidden_state)
                 state_manager.save_states_from_batch(hidden_state)
             else:
-                action = model(scan_seq)
+                # output は常に (batch_size, 2) のテンソル
+                output = model(scan_seq)
 
-            target = target_seq[:, -1, :]
-            total_loss = 0
-            if isinstance(action, dict):
-                for pred_action in action.values():
-                    total_loss += criterion(pred_action, target)
-            else:
-                total_loss = criterion(action, target)
+            # 常にMSE Loss を計算
+            predicted_steer = output[:, 0]
+            predicted_speed = output[:, 1]
+            loss_steer = criterion(predicted_steer, steer_true) 
+            loss_speed = criterion(predicted_speed, speed_true)
+            current_batch_loss = loss_steer + loss_speed
 
             optimizer.zero_grad()
-            total_loss.backward()
+            current_batch_loss.backward()
             optimizer.step()
-            running_loss += total_loss.item()
+            running_loss += current_batch_loss.item()
             
-            # --- ▼▼▼ tqdmによる変更箇所 ▼▼▼ ---
-            # プログレスバーに現在の平均損失を表示
             current_avg_loss = running_loss / (i + 1)
             pbar.set_postfix(loss=f"{current_avg_loss:.4f}")
-            # --- ▲▲▲ tqdmによる変更箇所 ▲▲▲ ---
 
         # エポック終了後の平均損失を計算して表示
         avg_loss = running_loss / len(train_loader)
