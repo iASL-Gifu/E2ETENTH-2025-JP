@@ -483,7 +483,7 @@ class TinyLidarConvTransformerNet(nn.Module):
         else:
             last_out = transformer_out[:, -1, :] # (Batch, d_model)
             out = F.relu(self.fc1(last_out))
-            out = F.relu(self.fc2(last_out))
+            out = F.relu(self.fc2(out))
             out = F.relu(self.fc3(out))
             out = torch.tanh(self.fc4(out))
         return out

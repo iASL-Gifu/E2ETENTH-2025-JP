@@ -1,21 +1,64 @@
-from .cnn import TinyLidarNet, TinyLidarLstmNet, TinyLidarConvLstmNet, TinyLidarActionLstmNet, TinyLidarActionConvLstmNet
+try:
+    from torch import compile as th_compile
+    print("[*] torch.compile is available.")
+except ImportError:
+    th_compile = None
+    print("[!] torch.compile is NOT available. (PyTorch < 2.0 or missing dependencies)")
+
 from .gnn import LidarGCN, LidarGAT, LidarGcnLstmNet, LidarGatLstmNet
 
-def load_cnn_model(model_name, input_dim, output_dim):
-
+from .cnn import (
+    TinyLidarNet,
+    TinyLidarLstmNet,
+    TinyLidarConvLstmNet,
+    TinyLidarActionNet,
+    TinyLidarActionLstmNet,
+    TinyLidarActionConvLstmNet,
+    TinyLidarConvTransformerNet
+)
+def load_cnn_model(model_name, input_dim, output_dim, compile_model: bool = False):
+    """
+    CNNベースのモデルをロードし、オプションでtorch.compileでコンパイルする。
+    Args:
+        model_name (str): ロードするCNNモデルの名前。
+        input_dim (int): モデルの入力次元。
+        output_dim (int): モデルの出力次元。
+        compile_model (bool): Trueの場合、モデルをtorch.compileでコンパイルする。
+    Returns:
+        torch.nn.Module: ロードまたはコンパイルされたモデルインスタンス。
+    """
+    model = None
     if model_name == 'TinyLidarNet':  
-        return TinyLidarNet(input_dim, output_dim)
+        model = TinyLidarNet(input_dim, output_dim)
     elif model_name == 'TinyLidarLstmNet':
-        return TinyLidarLstmNet(input_dim, output_dim, lstm_hidden_dim=128, lstm_layers=1)
+        model = TinyLidarLstmNet(input_dim, output_dim, lstm_hidden_dim=128, lstm_layers=1)
     elif model_name == 'TinyLidarConvLstmNet':
-        return TinyLidarConvLstmNet(input_dim, output_dim)
+        model = TinyLidarConvLstmNet(input_dim, output_dim)
+    elif model_name == 'TinyLidarActionNet':
+        model = TinyLidarActionNet(input_dim, output_dim, action_dim=2)
     elif model_name == 'TinyLidarActionLstmNet':
-        return TinyLidarActionLstmNet(input_dim, output_dim, lstm_hidden_dim=128, lstm_layers=1)
+        model = TinyLidarActionLstmNet(input_dim, output_dim, lstm_hidden_dim=128, lstm_layers=1)
     elif model_name == 'TinyLidarActionConvLstmNet':
-        return TinyLidarActionConvLstmNet(input_dim, output_dim)
+        model = TinyLidarActionConvLstmNet(input_dim, output_dim)
+    elif model_name == 'TinyLidarConvTransformerNet':
+        model = TinyLidarConvTransformerNet(input_dim, output_dim, d_model=256,
+                                           nhead=4,
+                                           num_encoder_layers=2,
+                                           dim_feedforward=256,
+                                           dropout=0.1)
     else:
         raise ValueError(f"Unknown model name: {model_name}")
     
+    # torch.compile の適用
+    if compile_model and th_compile:
+        print(f"[*] Compiling {model_name} with torch.compile...")
+        model = th_compile(model)
+        print(f"[+] {model_name} successfully compiled!")
+    elif compile_model and not th_compile:
+        print(f"[!] Warning: torch.compile requested for {model_name} but not available.")
+
+    return model
+
 def load_gnn_model(model_name, input_dim, hidden_dim, output_dim, pool_method='mean'):
 
     if model_name == 'LidarGCN':
