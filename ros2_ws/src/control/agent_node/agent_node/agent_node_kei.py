@@ -224,7 +224,7 @@ class AgentNode(Node):
         
         return frames
     
-    def convert_action(action, steer_range: float=1.0, speed_range: float=1.0):
+    def convert_action(self,action, steer_range: float=1.0, speed_range: float=1.0):
     
         steer = action[0] * steer_range
         speed = (action[1] + 1) / 2 * speed_range
@@ -285,10 +285,11 @@ class AgentNode(Node):
                 # SACモデルの決定論的推論：sample()の第3戻り値（平均アクション）を使用
                 _, _, action = self.model.sample(scan_tensor)
                 
-                cv_action = self.convert_action(action,)
+                ## cv_action = self.convert_action(action,)
 
-                steer = cv_action[0]
-                throttle = cv_action[1]
+                steer, throttle = action.tolist()[0]
+                throttle = (throttle+1.0)*0.5
+
         except Exception as e:
             self.get_logger().error(f"Inference failed: {e}")
             return
