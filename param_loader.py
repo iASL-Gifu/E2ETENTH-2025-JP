@@ -7,8 +7,6 @@ import argparse
 import questionary
 from questionary import Choice
 
-# --- スクリプト上部のPARAM_DIR定義は不要なため削除 ---
-
 def clear_screen():
     """画面をクリアする"""
     os.system('cls' if os.name == 'nt' else 'clear')
@@ -39,12 +37,20 @@ def select_node_loop():
             time.sleep(1)
             continue
 
-        choices = nodes + [
+        # Choiceオブジェクトを使い、表示名(title)と内部値(value)を分ける
+        numbered_node_choices = []
+        for i, node in enumerate(nodes, 1):
+            numbered_node_choices.append(
+                Choice(title=f"[{i}] {node}", value=node)
+            )
+
+        choices = numbered_node_choices + [
             questionary.Separator(),
             Choice("ノードリストを更新", value="reload"),
             Choice("終了", value="exit")
         ]
         
+        # questionaryはvalue値を返すので、後続の処理は変更不要
         selected = questionary.select(
             "パラメータをロードするノードを選択してください:",
             choices=choices
@@ -57,20 +63,64 @@ def select_node_loop():
         
         return selected
 
-# ★修正点1: param_dirを引数として受け取るように修正
+def select_directory_loop():
+    """対話的にディレクトリを選択し、そのパスを返す"""
+    current_path = os.getcwd()
+    while True:
+        clear_screen()
+        print(f"📂 パラメータディレクトリを選択してください (現在のパス: {current_path})\n")
+        
+        try:
+            items = sorted(os.listdir(current_path))
+        except OSError as e:
+            print(f"エラー: {e}")
+            current_path = os.path.dirname(current_path)
+            time.sleep(2)
+            continue
+        
+        dir_items = [item for item in items if os.path.isdir(os.path.join(current_path, item))]
+        
+        numbered_item_choices = []
+        # 抽出したディレクトリリストに対して番号を振る
+        for i, item in enumerate(dir_items, 1):
+            display_name = f"[{i}] [{item}]/"
+            numbered_item_choices.append(Choice(title=display_name, value=item))
+        
+        choices = [
+            Choice("✅ [ このディレクトリを決定する ]", value="."),
+            Choice("⏪../", value=".."),
+            questionary.Separator('---------- ディレクトリ一覧 ----------') # ファイルがなくなったので名称変更
+        ] + numbered_item_choices
+
+        selected = questionary.select(
+            "移動するディレクトリを選択 or このディレクトリを決定 (矢印キーで選択):",
+            choices=choices
+        ).ask()
+
+        if selected is None: # Ctrl+C
+            return None
+        
+        elif selected == ".":
+            return current_path
+        elif selected == "..":
+            current_path = os.path.dirname(current_path)
+        
+        
+        else:
+            current_path = os.path.join(current_path, selected)
+
 def param_load_loop(node_name, param_dir):
     """指定されたノードに対して、YAMLの選択とロードを繰り返すループ"""
     while True:
         clear_screen()
         print(f"✅ 現在の選択ノード: {node_name}")
-        print(f"📂 対象ディレクトリ: {param_dir}\n") # 引数のparam_dirを表示
+        print(f"📂 対象ディレクトリ: {param_dir}\n")
         
         action = questionary.select(
             "実行するアクションを選択してください:",
             choices=[
                 Choice("YAMLファイルを選択してロード", value="load"),
                 Choice("ノードを再選択する", value="reselect_node"),
-                # ★修正点2: "ealue" -> "value" にタイプミスを修正
                 Choice("終了", value="exit")
             ]
         ).ask()
@@ -83,81 +133,92 @@ def param_load_loop(node_name, param_dir):
 
         if action == "load":
             while True:
-                print("📂 YAMLファイルを検索中...")
-                # ★修正点3: 引数のparam_dirを使ってファイルを検索
                 yaml_files = glob.glob(os.path.join(param_dir, '*.yaml'))
                 yaml_files += glob.glob(os.path.join(param_dir, '*.yml'))
 
                 if not yaml_files:
-                    # 引数のparam_dirを表示
                     print(f"❌ ディレクトリ '{param_dir}' にYAMLファイルが見つかりません。")
                     retry_action = questionary.select(
                         "どうしますか？",
-                        choices=[
-                            Choice("リトライ", value="retry"),
-                            Choice("アクション選択に戻る", value="back")
-                        ]
+                        choices=[Choice("リトライ", value="retry"), Choice("アクション選択に戻る", value="back")]
                     ).ask()
-                    if retry_action == "back" or retry_action is None:
-                        break
+                    if retry_action == "back" or retry_action is None: break
                     else:
                         clear_screen()
                         print(f"✅ 現在の選択ノード: {node_name}\n")
                         continue
+                
+                numbered_file_choices = []
+                for i, filename in enumerate(sorted([os.path.basename(f) for f in yaml_files]), 1):
+                    numbered_file_choices.append(
+                        Choice(title=f"[{i}] {filename}", value=filename)
+                    )
 
-                choices = [os.path.basename(f) for f in yaml_files]
-                choices.append(questionary.Separator())
-                choices.append(Choice("戻る", value="back"))
+                choices = [
+                    Choice("[ 戻る ]", value="back"),
+                    questionary.Separator('--- YAML ファイル一覧 ---')
+                ] + numbered_file_choices
 
                 selected_yaml_name = questionary.select(
-                    "ロードするYAMLファイルを選択してください:",
-                    choices=choices
+                    "ロードするYAMLファイルを選択してください (矢印キーで選択):",
+                    choices=choices,
                 ).ask()
                 
                 if selected_yaml_name is None or selected_yaml_name == "back":
                     break
 
-                # 引数のparam_dirを使ってフルパスを作成
                 selected_yaml_path = os.path.join(param_dir, selected_yaml_name)
-                
                 print(f"\n⏳ 実行中: ros2 param load {node_name} {selected_yaml_path}")
                 result = run_command(['ros2', 'param', 'load', node_name, selected_yaml_path])
-
                 if result.returncode == 0:
                     print("\n✅ パラメータのロードに成功しました。")
                 else:
                     print("\n❌ パラメータのロードに失敗しました。")
-                    print("--- エラー出力 ---")
-                    print(result.stderr)
-                    print("--------------------")
-                
+                    print("--- エラー出力 ---\n" + result.stderr + "--------------------")
                 questionary.text("Enterキーを押して続行...").ask()
                 break
 
+# ★ main関数を修正
 def main():
     """メイン関数"""
     parser = argparse.ArgumentParser(
         description='A CUI tool to load ROS2 parameters interactively.'
     )
+    # ★引数を必須(required)から任意(optional)に変更
     parser.add_argument(
         'param_dir', 
-        help='Directory path where YAML parameter files are stored.'
+        nargs='?', # 0か1個の引数を受け取る
+        default=None, # 引数がなければNoneになる
+        help='(Optional) Directory path where YAML parameter files are stored.'
     )
     args = parser.parse_args()
-    param_dir = args.param_dir
-
-    if not os.path.isdir(param_dir):
-        print(f"❌ Error: Directory not found at '{param_dir}'")
-        sys.exit(1)
-
+    
+    # --- 引数の有無で動作を分岐 ---
+    param_dir_from_arg = args.param_dir
+    
     try:
-        while True:
-            selected_node = select_node_loop()
-            if selected_node is None:
-                break
-            # 修正されたparam_load_loopを呼び出す
-            param_load_loop(selected_node, param_dir)
+        if param_dir_from_arg:
+            # ケースA: 引数が指定された場合
+            if not os.path.isdir(param_dir_from_arg):
+                print(f"❌ Error: Directory not found at '{param_dir_from_arg}'")
+                sys.exit(1)
             
+            while True:
+                selected_node = select_node_loop()
+                if selected_node is None: break
+                param_load_loop(selected_node, param_dir_from_arg)
+        else:
+            # ケースB: 引数が指定されなかった場合
+            while True:
+                selected_node = select_node_loop()
+                if selected_node is None: break
+                
+                # ディレクトリ選択モードを開始
+                selected_dir = select_directory_loop()
+                if selected_dir is None: continue # ディレクトリ選択をキャンセルしたらノード選択に戻る
+                
+                param_load_loop(selected_node, selected_dir)
+
     except (KeyboardInterrupt, SystemExit):
         pass
     finally:
