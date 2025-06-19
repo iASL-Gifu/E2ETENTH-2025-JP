@@ -93,7 +93,7 @@ def main(cfg: DictConfig):
             with torch.no_grad():
                 # スキャンをグラフに変換
                 scan = obs['scans'][0]
-                scan_tensor = torch.from_numpy(scan).float().to(device) # [1080]
+                scan_tensor = torch.from_numpy(scan).float().to(device) / cfg.envs.max_beam_range # [1080]
         
                 # モデルの入力形状 (B, C, L) に合わせる
                 scan_tensor = scan_tensor.unsqueeze(0).unsqueeze(0) # [1, 1, 1080]
@@ -120,7 +120,7 @@ def main(cfg: DictConfig):
 
                 
                 # action = model(scan_tensor).squeeze(0).cpu().numpy()
-                steer = steer * cfg.envs.steer_range # steer
+                steer = steer 
                 speed = speed * cfg.envs.map.speed # speed
                 action = [steer, speed]
                 actions.append(action) 

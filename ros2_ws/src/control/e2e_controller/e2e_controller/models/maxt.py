@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from omegaconf import DictConfig, OmegaConf
 from typing import Union, Dict
 import time
@@ -12,7 +13,7 @@ from .layers.head import _MultiScaleHead
 def get_model_cfg(
     model_size: str, 
     backbone_stages: int = 4, 
-    fpn_stages: int = 4
+    fpn_stages: int = 4,
 ) -> DictConfig:
     """ 
     モデルのサイズとステージ数から設定を生成する。
@@ -88,9 +89,11 @@ def get_model_cfg(
                 'in_channels': fpn_in_channels_map,
             },
             'head': { 
-                'name': 'MultiScaleRegressionHead', 'out_features': 2, 
-                'mid_features_ratio': 0.5, 'in_channels': fpn_in_channels_map,
-                'strides_map': strides_map, # ★ここが新しい追加点★
+                'name': 'MultiScaleRegressionHead',
+                'out_features': 2, 
+                'mid_features_ratio': 0.5,
+                'in_channels': fpn_in_channels_map,
+                'strides_map': strides_map,
             }
         }
     }
@@ -107,21 +110,32 @@ class LidarRegressor(nn.Module):
         self.neck = PAFPN1d(cfg.model.neck)
         
         head_cfg = cfg.model.head
-        if head_cfg.name == 'MultiScaleRegressionHead':
-            self.head = _MultiScaleHead(head_cfg)
-        else:
-            raise ValueError(f"Unknown head name: {head_cfg.name}")
+        self.head = _MultiScaleHead(head_cfg) # _MultiScaleHead は不確実性を予測しない前提
+
+        num_fpn_stages = len(cfg.model.neck.in_keys)
+        # _MultiScaleHead からの各ステージの出力次元 (steer_mu, speed_mu)
+        per_stage_output_dim = cfg.model.head.out_features
         
-    def forward(self, x: torch.Tensor) -> Union[torch.Tensor, Dict[str, torch.Tensor]]:
+        # 最終的な結合層の入力次元
+        combined_input_dim = num_fpn_stages * per_stage_output_dim
+        
+        # 最終的な出力次元 (steer, speed)
+        final_output_dim = cfg.model.head.out_features
+
+        self.final_regression_layer = nn.Sequential(
+            nn.Linear(combined_input_dim, combined_input_dim // 2),
+            nn.SiLU(inplace=True), 
+            nn.Linear(combined_input_dim // 2, final_output_dim) 
+        )
+        self.out_features = cfg.model.head.out_features 
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         all_features = self.backbone(x)
-        
-        # self.neck.in_keys は get_model_cfg で適切に 'C1', 'C2', ... の形式で設定されている
         neck_input = {key: all_features[key] for key in self.neck.in_keys}
         neck_features = self.neck(neck_input)
         
-        predictions = self.head(neck_features)
-        
-        return predictions
+        multi_scale_predictions = self.head(neck_features) # dict[str, dict[str, tensor]]
+        return multi_scale_predictions
     
 if __name__ == "__main__":
     print("--- LidarRegressor Model Test ---")
@@ -138,6 +152,7 @@ if __name__ == "__main__":
         cfg = get_model_cfg(model_size, backbone_stages, fpn_stages)
         print("\n--- Generated Config ---")
         print(OmegaConf.to_yaml(cfg))
+        print("-------------------------")
 
         # 2. モデルの初期化
         model = LidarRegressor(cfg)
@@ -168,7 +183,7 @@ if __name__ == "__main__":
 
         # 5. 出力形状と対応するストライドの確認
         print("\n--- Model Output Shape and Stride ---")
-        print(f"Output keys: {output.keys()}")
+        print(f"Output keys: {output}")
         head_strides_map = model.head.strides_map # _MultiScaleHeadからストライドマップを取得
         for k, v in output.items():
             stride = head_strides_map.get(k, 'N/A') # 各出力キーに対応するストライドを取得
