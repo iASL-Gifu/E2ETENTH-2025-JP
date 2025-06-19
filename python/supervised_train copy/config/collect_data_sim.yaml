@@ -1,0 +1,59 @@
+output_dir: ./datasets/sim/
+num_sets: 2 ## train 15 map,  test 6maps
+num_steps: 10000
+render: false
+render_mode: human_fast
+
+data:
+  num_waypoints: 10
+
+envs:
+  timestep: 0.01 ## シミュレータの時間間隔
+  num_beams: 1080 ## 2d Lidarのビーム数
+  beam_fov: 4.7 ## 2d Lidarの範囲 -135° ~ 135°
+  max_beam_range: 30.0 ## 2d Lidarの最大距離
+  num_agents: 1
+  steer_range: 0.4 ## ステアリングの範囲
+  speed_range: 10.0 ## 車両の速度範囲
+  render_mode: human_fast ## human or human_fast
+  map:
+    name: IMS ## マップの名前
+    ext: .png ## マップの拡張子
+    line_type: center ## center or race
+    speed: 8.0 ## waypointの速度
+    downsample: 1 ## マップのダウンサンプリング
+
+    ## planner用の設定
+    use_dynamic_speed: true ## 動的な速度を使用するかどうか
+    a_lat_max: 1.0 ## 最大横加速度
+    smooth_sigma: 3 ## スムージングのsigma
+
+planner:
+  wheelbase: 0.33 ## そのままで良い
+  lookahead: 0.56 ## 前方を見る距離
+  gain: 0.2 ## 速度に応じて前方を見る距離を変える時の倍率
+  max_reacquire: 20.0 ## そのままで良い
+
+vehicle:
+  mu: 1.0489
+  C_Sf: 4.718
+  C_Sr: 5.4562
+  lf: 0.15875
+  lr: 0.17145
+  h: 0.074
+  m: 3.74
+  I: 0.04712
+  s_min: -0.4
+  s_max: 0.4
+  sv_min: -3.2
+  sv_max: 3.2
+  v_switch: 7.319
+  a_max: 9.51
+  v_min: -5.0
+  v_max: 10.0
+  width: 0.31
+  length: 0.58
+
+hydra:
+  run:
+    dir: ./outputs/collect_data_sim/${now:%Y-%m-%d}/${now:%H-%M-%S}
