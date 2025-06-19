@@ -2,14 +2,12 @@ import torch
 import os
 import hydra
 from omegaconf import DictConfig, OmegaConf
-from tqdm import tqdm  # tqdmをインポート
-import torch.nn.functional as F # MSELossのためにF.mse_lossをインポート
+from tqdm import tqdm
 
 from src.models.models import load_maxt_model
 from src.data.dataset.dataset import HybridLoader
 from src.data.dataset.transform import SeqToSeqTransform, StreamAugmentor
 from src.models.layers.state_manager import RnnStateManager
-# from src.utils.loss import heteroscedastic_loss  # ヘテロスケダスティック損失は不要になるので削除
 
 @hydra.main(config_path="config", config_name="train_maxt", version_base="1.2")
 def main(cfg: DictConfig) -> None:
@@ -20,7 +18,7 @@ def main(cfg: DictConfig) -> None:
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     data_path = hydra.utils.to_absolute_path(cfg.data_path)
 
-    # --- データセットとデータローダーの準備 --- (変更なし)
+    # --- データセットとデータローダーの準備 --- 
     transform_random = SeqToSeqTransform(
         range_max=cfg.range_max,
         downsample_num=cfg.input_dim,
@@ -28,19 +26,16 @@ def main(cfg: DictConfig) -> None:
         flip_prob=cfg.flip_prob,
         noise_std=cfg.noise_std
     )
-
     transform_stream = SeqToSeqTransform(
         range_max=cfg.range_max,
         downsample_num=cfg.input_dim,
         augment=False
     )
-
     augmentor_stream = StreamAugmentor(
         augment=True,
         flip_prob=cfg.flip_prob,
         noise_std=cfg.noise_std
     )
-
     train_loader = HybridLoader(
         root_dir=data_path,
         sequence_length=cfg.sequence_length,
@@ -52,21 +47,14 @@ def main(cfg: DictConfig) -> None:
         num_workers_random=cfg.num_workers
     )
 
-    # --- モデル、損失関数、最適化手法の準備 ---
-    # predict_uncertainty フラグは削除
-    model = load_maxt_model(size="tiny").to(device) # 引数から predict_uncertainty を削除
-
-    # 常にMSELossを使用
-    print("Using MSE Loss for training.")
-    criterion = torch.nn.MSELoss() 
-        
+    # --- モデル、損失関数、最適化手法の準備 --- 
+    model = load_maxt_model(size="tiny").to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
-
     is_rnn = False
     if is_rnn:
         state_manager = RnnStateManager(device)
 
-    # --- チェックポイントと早期終了の準備 (変更なし) ---
+    # --- チェックポイントと早期終了の準備 --- 
     save_path = cfg.ckpt_path
     os.makedirs(save_path, exist_ok=True)
     early_stop_epochs = cfg.early_stop_epochs
@@ -89,26 +77,16 @@ def main(cfg: DictConfig) -> None:
         
         for i, batch in enumerate(pbar):
             scan_seq = batch['scan_seq'].to(device)
-            target_seq = batch['target_action_seq'].to(device)
-            steer_true = target_seq[:, -1, 0] # steer の真値
-            speed_true = target_seq[:, -1, 1] # speed の真値
-            is_first_seq = batch['is_first_seq'].to(device)
+            ground_truth = batch['target_action_seq'][:, -1, :2].to(device) 
 
             if is_rnn:
-                prev_hidden_state = state_manager.get_states_for_batch(is_first_seq)
-                action, hidden_state = model(scan_seq, hidden=prev_hidden_state)
-                state_manager.save_states_from_batch(hidden_state)
+                pass
             else:
-                # output は常に (batch_size, 2) のテンソル
-                output = model(scan_seq)
-
-            # 常にMSE Loss を計算
-            predicted_steer = output[:, 0]
-            predicted_speed = output[:, 1]
-            loss_steer = criterion(predicted_steer, steer_true) 
-            loss_speed = criterion(predicted_speed, speed_true)
-            current_batch_loss = loss_steer + loss_speed
-
+                
+                result_dict = model(scan_seq, target=ground_truth)
+                # 辞書から計算済みの損失を取得
+                current_batch_loss = result_dict['loss']
+            
             optimizer.zero_grad()
             current_batch_loss.backward()
             optimizer.step()
@@ -117,7 +95,6 @@ def main(cfg: DictConfig) -> None:
             current_avg_loss = running_loss / (i + 1)
             pbar.set_postfix(loss=f"{current_avg_loss:.4f}")
 
-        # エポック終了後の平均損失を計算して表示
         avg_loss = running_loss / len(train_loader)
         print(f"[Epoch {epoch+1}/{cfg.num_epochs}] Loss: {avg_loss:.4f}")
 

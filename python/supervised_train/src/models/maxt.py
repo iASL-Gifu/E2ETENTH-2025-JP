@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from omegaconf import DictConfig, OmegaConf
-from typing import Union, Dict
+from typing import Union, Dict, Optional, Any
 import time
 
 from .layers.maxt1d import MaxT1d
@@ -108,34 +108,48 @@ class LidarRegressor(nn.Module):
         
         self.backbone = MaxT1d(cfg.model.backbone)
         self.neck = PAFPN1d(cfg.model.neck)
+        self.head = _MultiScaleHead(cfg.model.head)
         
-        head_cfg = cfg.model.head
-        self.head = _MultiScaleHead(head_cfg) # _MultiScaleHead は不確実性を予測しない前提
+        # 損失関数をクラス内で定義
+        self.criterion = nn.MSELoss()
 
-        num_fpn_stages = len(cfg.model.neck.in_keys)
-        # _MultiScaleHead からの各ステージの出力次元 (steer_mu, speed_mu)
-        per_stage_output_dim = cfg.model.head.out_features
-        
-        # 最終的な結合層の入力次元
-        combined_input_dim = num_fpn_stages * per_stage_output_dim
-        
-        # 最終的な出力次元 (steer, speed)
-        final_output_dim = cfg.model.head.out_features
-
-        self.final_regression_layer = nn.Sequential(
-            nn.Linear(combined_input_dim, combined_input_dim // 2),
-            nn.SiLU(inplace=True), 
-            nn.Linear(combined_input_dim // 2, final_output_dim) 
-        )
-        self.out_features = cfg.model.head.out_features 
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, target: Optional[torch.Tensor] = None) -> Dict[str, Any]:
+        """
+        常に辞書を返すように統一。
+        - target が与えられた場合 (学習時): {'output': ..., 'loss': ...} を返す
+        - target が None の場合 (評価時): {'output': ...} のみを返す
+        """
+        # --- 1. 予測値の計算 ---
         all_features = self.backbone(x)
         neck_input = {key: all_features[key] for key in self.neck.in_keys}
         neck_features = self.neck(neck_input)
         
-        multi_scale_predictions = self.head(neck_features) # dict[str, dict[str, tensor]]
-        return multi_scale_predictions
+        # predictions_dict は {'C1': tensor, 'C2': tensor, ...} の形式
+        predictions_dict = self.head(neck_features)
+
+        # --- 2. 戻り値の構築 ---
+        
+        # 評価時は、予測値を 'output' キーに入れて返す
+        if target is None:
+            return {'output': predictions_dict}
+
+        # --- 学習時は、以下で損失を計算して追加 ---
+        
+        total_loss = 0.0
+        num_predictions = len(predictions_dict)
+
+        if num_predictions > 0:
+            for pred_tensor in predictions_dict.values():
+                total_loss += self.criterion(pred_tensor, target)
+            calculated_loss = total_loss / num_predictions
+        else:
+            calculated_loss = torch.tensor(0.0, device=x.device, requires_grad=True)
+
+        # 学習時は、予測値と損失の両方を辞書で返す
+        return {
+            'output': predictions_dict,
+            'loss': calculated_loss
+        }
     
 if __name__ == "__main__":
     print("--- LidarRegressor Model Test ---")
