@@ -16,6 +16,8 @@ from .cnn import (
     TinyLidarActionConvLstmNet,
     TinyLidarConvTransformerNet
 )
+from .maxt import LidarRegressor, get_model_cfg 
+
 def load_cnn_model(model_name, input_dim, output_dim, compile_model: bool = False):
     """
     CNNベースのモデルをロードし、オプションでtorch.compileでコンパイルする。
@@ -87,3 +89,28 @@ def load_gnn_model(model_name, input_dim, hidden_dim, output_dim, pool_method='m
                         pool_method=pool_method)
     else:
         raise ValueError(f"Unknown GNN model name: {model_name}")
+    
+
+def load_maxt_model(size: str, backbone_stages: int = 4, fpn_stages: int = 4, compile_model: bool = False):
+    """
+    MAxTモデルをロードし、オプションでtorch.compileでコンパイルする関数。
+    Args:
+        size (str): モデルのサイズ ('tiny', 'small', 'base' など)
+        backbone_stages (int): バックボーンのステージ数。
+        fpn_stages (int): FPNのステージ数。
+        compile_model (bool): Trueの場合、モデルをtorch.compileでコンパイルする。
+    Returns:
+        torch.nn.Module: ロードまたはコンパイルされたモデルインスタンス。
+    """
+    cfg = get_model_cfg(size, backbone_stages, fpn_stages)
+    model = LidarRegressor(cfg)
+
+    # torch.compile の適用
+    if compile_model and th_compile:
+        print(f"[*] Compiling MaxT Model (size: {size}) with torch.compile...")
+        model = th_compile(model)
+        print(f"[+] MaxT Model (size: {size}) successfully compiled!")
+    elif compile_model and not th_compile:
+        print(f"[!] Warning: torch.compile requested for MaxT Model (size: {size}) but not available.")
+    
+    return model
