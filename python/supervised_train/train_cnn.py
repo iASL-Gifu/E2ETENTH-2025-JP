@@ -2,6 +2,7 @@ import torch
 import os
 import hydra
 from omegaconf import DictConfig, OmegaConf
+from tqdm import tqdm  # tqdmをインポート
 
 from src.models.models import load_cnn_model 
 from src.data.dataset.dataset import HybridLoader 
@@ -21,28 +22,23 @@ def main(cfg: DictConfig) -> None:
     transform_random = SeqToSeqTransform(
         range_max=cfg.range_max,
         downsample_num=cfg.input_dim,
-        augment=True, # 確率的なデータ拡張を有効化
-        flip_prob=cfg.flip_prob, # configから設定可能に
+        augment=True,
+        flip_prob=cfg.flip_prob,
         noise_std=cfg.noise_std
     )
 
-    # 2. StreamDataset用のベース変換Transformを作成 (データ拡張なし)
-    #    正規化やクリッピングなど、常に適用する決定的な処理のみ行います。
     transform_stream = SeqToSeqTransform(
         range_max=cfg.range_max,
         downsample_num=cfg.input_dim,
-        augment=False # 確率的なデータ拡張は無効化
+        augment=False
     )
 
-    # 3. StreamDataset用のAugmentorを作成 (エピソード単位の拡張あり)
-    #    エピソード単位での確率的なデータ拡張を行います。
     augmentor_stream = StreamAugmentor(
         augment=True,
         flip_prob=cfg.flip_prob,
         noise_std=cfg.noise_std
     )
 
-    # 4. HybridLoaderを新しいインタフェースで初期化
     train_loader = HybridLoader(
         root_dir=data_path,
         sequence_length=cfg.sequence_length,
@@ -69,7 +65,7 @@ def main(cfg: DictConfig) -> None:
     if is_rnn:
         state_manager = RnnStateManager(device)
 
-    # --- チェックポイントと早期終了の準備 (変更なし) ---
+    # --- チェックポイントと早期終了の準備 ---
     save_path = cfg.ckpt_path
     os.makedirs(save_path, exist_ok=True)
     early_stop_epochs = cfg.early_stop_epochs
@@ -88,11 +84,17 @@ def main(cfg: DictConfig) -> None:
         if is_rnn:
             state_manager.reset_states(cfg.batch_size)
 
-        for batch in train_loader:
+        # tqdmを使用してプログレスバーを表示
+        progress_bar = tqdm(
+            enumerate(train_loader), 
+            total=len(train_loader), 
+            desc=f"Epoch {epoch+1}/{cfg.num_epochs}"
+        )
+        
+        for i, batch in progress_bar:
             scan_seq = batch['scan_seq'].to(device)
             prev_action_seq = batch['prev_action_seq'].to(device)
             target_seq = batch['target_action_seq'].to(device)
-            # is_first_seqも取得
             is_first_seq = batch['is_first_seq'].to(device) 
 
             # --- モデルへの入力を動的に切り替え ---
@@ -106,7 +108,6 @@ def main(cfg: DictConfig) -> None:
                 
                 state_manager.save_states_from_batch(hidden_state)
             else:
-               
                 if is_use_prev_action:
                     action = model(scan_seq, prev_action_seq)
                 else:
@@ -125,28 +126,33 @@ def main(cfg: DictConfig) -> None:
             loss.backward()
             optimizer.step()
             running_loss += loss.item()
+            
+            # プログレスバーに現在の損失と平均損失を表示
+            progress_bar.set_postfix(loss=f"{loss.item():.4f}", avg_loss=f"{running_loss / (i + 1):.4f}")
 
+        # エポックごとの最終的な平均損失
         avg_loss = running_loss / len(train_loader)
-        print(f"[Epoch {epoch+1}/{cfg.num_epochs}] Loss: {avg_loss:.4f}")
+        # tqdm.writeはプログレスバー表示を妨げずに出力します
+        tqdm.write(f"[Epoch {epoch+1}/{cfg.num_epochs}] Loss: {avg_loss:.4f}")
 
         if len(top_k_checkpoints) < top_k or avg_loss < top_k_checkpoints[-1][0]:
             checkpoint_path = os.path.join(save_path, f'model_epoch_{epoch+1}_loss_{avg_loss:.4f}.pth')
             torch.save(model.state_dict(), checkpoint_path)
-            print(f"  [✔] Saved new top-k model (loss={avg_loss:.4f})")
+            tqdm.write(f"  [✔] Saved new top-k model (loss={avg_loss:.4f})")
             top_k_checkpoints.append((avg_loss, epoch + 1, checkpoint_path))
             top_k_checkpoints.sort(key=lambda x: x[0])
             if len(top_k_checkpoints) > top_k:
                 worst_checkpoint = top_k_checkpoints.pop()
                 if os.path.exists(worst_checkpoint[2]):
                     os.remove(worst_checkpoint[2])
-                    print(f"  [🗑] Removed old model: {os.path.basename(worst_checkpoint[2])}")
+                    tqdm.write(f"  [🗑] Removed old model: {os.path.basename(worst_checkpoint[2])}")
             patience_counter = 0
         else:
             patience_counter += 1
             best_loss = top_k_checkpoints[0][0] if top_k_checkpoints else float('inf')
-            print(f"  [!] No improvement over best loss ({best_loss:.4f}). Patience: {patience_counter}/{early_stop_epochs}")
+            tqdm.write(f"  [!] No improvement over best loss ({best_loss:.4f}). Patience: {patience_counter}/{early_stop_epochs}")
             if patience_counter >= early_stop_epochs:
-                print("[⏹] Early stopping triggered.")
+                tqdm.write("[⏹] Early stopping triggered.")
                 break
 
     print("\n--- Training Finished ---")
