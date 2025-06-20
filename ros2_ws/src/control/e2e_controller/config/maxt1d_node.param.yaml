@@ -1,0 +1,8 @@
+/**:
+  ros__parameters:
+
+    model_size: Tiny
+    model_path: .pt
+    max_range: 30.0
+    input_dim: 1081
+    output_dim: 2

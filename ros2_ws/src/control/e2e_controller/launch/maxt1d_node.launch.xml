@@ -1,0 +1,18 @@
+<launch>
+  
+  <arg name="maxt1d_node"  default="$(find-pkg-share e2e_controller)/config/maxt1d_node.param.yaml"/>
+  <!-- cnn node -->
+  <node pkg="e2e_controller" 
+        exec="maxt1d_node"
+        name="maxt1d_node"
+        output="screen">
+
+    <!-- パラメータ -->
+    <param from="$(var maxt1d_node)"/>
+    <!-- トピックのremap -->
+    <remap from="/scan" to="/scan_filtered"/>
+    <remap from="/cmd_drive" to="/ackermann_cmd"/>
+  </node>
+
+
+</launch>
