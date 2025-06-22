@@ -91,7 +91,7 @@ def load_gnn_model(model_name, input_dim, hidden_dim, output_dim, pool_method='m
         raise ValueError(f"Unknown GNN model name: {model_name}")
     
 
-def load_maxt_model(size: str, backbone_stages: int = 4, fpn_stages: int = 4, compile_model: bool = True):
+def load_maxt_model(size: str, backbone_stages: int = 4, fpn_stages: int = 4, compile_model: bool = False):
     """
     MAxTモデルをロードし、オプションでtorch.compileでコンパイルする関数。
     Args:
