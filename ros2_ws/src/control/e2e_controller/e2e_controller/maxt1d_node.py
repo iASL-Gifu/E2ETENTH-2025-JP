@@ -125,11 +125,15 @@ class MAXT1dNode(Node):
                 scan_tensor = torch.tensor(sampled_ranges, dtype=torch.float32).unsqueeze(0).unsqueeze(0).to(self.device)
                 
                 # --- 3. モデルで推論 ---
-                output = self.model(scan_tensor)
+                result_dict = self.model(scan_tensor)
                 
                 # --- 4. 結果の処理 ---
-                action = output[0].cpu().numpy()
-                steer, throttle = action.tolist()
+                predictions_dict = result_dict['output']
+                if predictions_dict:
+                    # テンソルのリストをスタックし(num_scales, 1, 2)、dim=0で平均を取る -> (1, 2)
+                    avg_prediction_tensor = torch.stack(list(predictions_dict.values())).mean(dim=0)
+                    self.prev_action = avg_prediction_tensor[0].cpu().numpy()
+                    steer, throttle = self.prev_action.tolist()
 
         except Exception as e:
             self.get_logger().error(f"Inference failed: {e}", throttle_skip_first=True, throttle_time_sec=5.0)
