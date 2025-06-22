@@ -78,8 +78,6 @@ class MAXT1dNode(Node):
             # ファクトリ関数を使い、指定されたサイズのモデルをロード
             model = load_maxt_model(
                 size=self.model_size,
-                input_dim=self.input_dim,
-                output_dim=self.output_dim
             )
             
             if not os.path.exists(self.model_path):
