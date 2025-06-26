@@ -34,7 +34,7 @@ def main(cfg: DictConfig) -> None:
 
     transform_random = SeqToSeqTransform(
         range_max=cfg.range_max,
-        downsample_num=cfg.input_dim,
+        downsample_num=cfg.input_lidar_dim,
         augment=True,
         flip_prob=cfg.flip_prob,
         noise_std=cfg.noise_std
@@ -42,7 +42,7 @@ def main(cfg: DictConfig) -> None:
 
     transform_stream = SeqToSeqTransform(
         range_max=cfg.range_max,
-        downsample_num=cfg.input_dim,
+        downsample_num=cfg.input_lidar_dim,
         augment=False
     )
 
@@ -110,7 +110,7 @@ def main(cfg: DictConfig) -> None:
             graph_batch = build_batch_graph_cuda(
                 scan_data_batch=scan_batch,
                 distance_threshold=cfg.distance_threshold,
-                max_neighbors=cfg.max_neighbors
+                max_edges=cfg.max_edges
             )
             
             # 3. 構築したグラフを学習デバイスに配置
