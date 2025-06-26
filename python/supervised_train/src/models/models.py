@@ -15,6 +15,8 @@ from .cnn import (
     TinyLidarConvTransformerNet
 )
 
+from .gnn import LidarGCN, LidarGcnLstmNet, LidarGAT, LidarGatLstmNet
+
 from .maxt import LidarRegressor, get_model_cfg 
 
 def load_cnn_model(model_name, input_dim, output_dim, compile_model: bool = False):
@@ -60,6 +62,36 @@ def load_cnn_model(model_name, input_dim, output_dim, compile_model: bool = Fals
 
     return model
     
+def load_gnn_model(model_name, input_dim, hidden_dim, output_dim, pool_method='mean'):
+
+    if model_name == 'LidarGCN':
+        return LidarGCN(input_dim=input_dim,
+                        hidden_dim=hidden_dim,
+                        output_dim=output_dim,
+                        pool_method=pool_method)
+    elif model_name == 'LidarGCNLstm':
+        return LidarGcnLstmNet(input_dim=input_dim,
+                        hidden_dim=hidden_dim,
+                        output_dim=output_dim,
+                        pool_method=pool_method)
+    elif model_name == 'LidarGAT':
+        return LidarGAT(input_dim=input_dim,
+                        hidden_dim=hidden_dim,
+                        output_dim=output_dim,
+                        heads=8,
+                        dropout_rate=0.5,
+                        pool_method=pool_method)
+    elif model_name == 'LidarGATLstm':
+        return LidarGatLstmNet(input_dim=input_dim,
+                        hidden_dim=hidden_dim,
+                        output_dim=output_dim,
+                        heads=8,
+                        dropout_rate=0.5,
+                        pool_method=pool_method)
+    else:
+        raise ValueError(f"Unknown GNN model name: {model_name}")
+    
+
 def load_maxt_model(size: str, backbone_stages: int = 4, fpn_stages: int = 4, compile_model: bool = False):
     """
     MAxTモデルをロードし、オプションでtorch.compileでコンパイルする関数。
