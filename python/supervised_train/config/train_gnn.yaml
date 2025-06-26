@@ -4,19 +4,20 @@
 data_path: "./datasets/"
 ckpt_path: "./ckpts"
 
-## model パラメータ
-## LidarGCN, LidarGCNLstm, 
-## LidarGAT, LidarGATLstm,
-
+# --- model パラメータ ---
+# LidarGCN, LidarGCNLstm, 
+# LidarGAT, LidarGATLstm,
 model_name: "LidarGCN" 
 
 # --- モデルパラメータ ---
-input_dim: 1081
+input_dim: 2
 output_dim: 2
 hidden_dim: 128
-pool_method: "mean"  # mean or max
-sequence_length: 10
+pool_method: "max"  # mean or max
+sequence_length: 1
 range_max: 30.0
+distance_threshold: 0.033 
+max_edges: 16
 
 # --- 学習パラメータ ---
 lr: 0.0001
@@ -24,12 +25,13 @@ num_epochs: 100
 early_stop_epochs: 10
 
 # --- データローダパラメータ ---
+input_lidar_dim: 1081
 batch_size: 8 
 random_ratio: 0.5   # バッチの XX% をランダムサンプルにする
 flip_prob: 0.5
 noise_std: 0.01
 num_workers: 10      # ランダムローダ用のnum_workers
+
 hydra:
   run:
     dir: ./outputs/train_cnn/${now:%Y-%m-%d}/${now:%H-%M-%S}
-
