@@ -7,7 +7,7 @@ class RnnStateManager:
         self.device = device
         self._states = None # (h_n, c_n) タプルを保持
 
-    def reset_states(self, batch_size):
+    def reset_states(self):
         """エポック開始時に状態を完全にリセットする。"""
         self._states = None
         print("[INFO] RNN states have been reset for the new epoch.")
@@ -22,16 +22,34 @@ class RnnStateManager:
             return None
 
         # is_first_seqフラグに基づいて、特定サンプルの状態のみをリセット
-        # h_n と c_n の両方に対して処理を行う
         h_n, c_n = self._states
         
-        # is_first_seqの形状を [B] -> [1, B, 1] にブロードキャスト可能にする
-        reset_mask = is_first_seq.view(1, -1, 1).to(self.device)
+        # --- ▼ ここからが修正箇所 ▼ ---
+
+        # is_first_seq (形状: [B]) を bool に変換
+        reset_mask_bool = is_first_seq.to(self.device)
+
+        # h_n と c_n の形状を調べて、適切な形状のマスクを作成
+        # h_n の形状は (num_layers, B, H) または (B, C, L)
+        if h_n.dim() == 3 and h_n.shape[0] == 1:
+            # nn.LSTM (num_layers=1) の場合: h_n.shape は (1, B, H)
+            # reset_mask の形状を (1, B, 1) にする
+            reset_mask = reset_mask_bool.view(1, -1, 1)
+        elif h_n.dim() == 3:
+            # ConvLSTM の場合: h_n.shape は (B, C, L)
+            # reset_mask の形状を (B, 1, 1) にする
+            reset_mask = reset_mask_bool.view(-1, 1, 1)
+        else:
+            # 予期しない形状の場合のエラーハンドリング
+            raise ValueError(f"Unsupported hidden state shape: {h_n.shape}")
 
         # マスクを適用してリセット
-        # is_first_seqがTrueの箇所は0になり、Falseの箇所は元の値が維持される
+        # is_first_seqがTrueの箇所は 0 になり、Falseの箇所は元の値が維持される
+        # ブールインデックスのNOT(~)を使うためにbool型に変換
         h_n = h_n * (~reset_mask)
         c_n = c_n * (~reset_mask)
+        
+        # --- ▲ ここまでが修正箇所 ▲ ---
 
         return (h_n, c_n)
 
