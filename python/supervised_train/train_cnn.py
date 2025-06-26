@@ -82,7 +82,7 @@ def main(cfg: DictConfig) -> None:
         running_loss = 0.0
 
         if is_rnn:
-            state_manager.reset_states(cfg.batch_size)
+            state_manager.reset_states()
 
         # tqdmを使用してプログレスバーを表示
         progress_bar = tqdm(
