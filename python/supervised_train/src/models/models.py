@@ -52,7 +52,9 @@ def load_cnn_model(model_name, input_dim, output_dim, compile_model: bool = Fals
         torch.nn.Module: ロードまたはコンパイルされたモデルインスタンス。
     """
     model = None
-    if model_name == 'TinyLidarNet':  
+    if model_name == 'MLP':
+        model = SimpleMLP(input_dim, output_dim)
+    elif model_name == 'TinyLidarNet':  
         model = TinyLidarNet(input_dim, output_dim)
     elif model_name == 'TinyLidarLstmNet':
         model = TinyLidarLstmNet(input_dim, output_dim, lstm_hidden_dim=128, lstm_layers=1)
