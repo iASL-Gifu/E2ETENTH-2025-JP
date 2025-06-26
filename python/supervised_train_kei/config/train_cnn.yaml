@@ -1,8 +1,8 @@
 # config/train_cnn.yaml
 
 # --- 基本設定 ---
-data_path: "./datasets/"
-ckpt_path: "./ckpts"
+data_path: "/home/ktr/f1tenth_ws/E2ETENTH-2025-JP/python/supervised_train_kei/datasets/625/625_slow_kei"
+ckpt_path: "./out_ckpts"
 
 ## model パラメータ
 ## TinyLidarNet, TinyLidarLstmNet, TinyLidarConvLstmNet
@@ -14,17 +14,17 @@ model_name: "TinyLidarNet"
 # --- モデルパラメータ ---
 input_dim: 1081
 output_dim: 2
-sequence_length: 10
+sequence_length: 1
 range_max: 30.0
 
 # --- 学習パラメータ ---
-lr: 0.0001
+lr: 0.0005
 num_epochs: 100
 early_stop_epochs: 10
 
 # --- データローダパラメータ ---
 batch_size: 8 
-random_ratio: 0.5   # バッチの XX% をランダムサンプルにする
+random_ratio: 1.0  # バッチの XX% をランダムサンプルにする
 flip_prob: 0.5
 noise_std: 0.01
 num_workers: 10      # ランダムローダ用のnum_workers

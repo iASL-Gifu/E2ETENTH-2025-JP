@@ -6,9 +6,11 @@ from rcl_interfaces.msg import SetParametersResult
 import torch
 import numpy as np
 import os
+
 from collections import deque
 
 from .models.sac import Actor  # SACモデル定義
+from .models.LiDAR_CNN import F1TenthLiDARInferenceEngine, StabilizedLiDARInference
 
 class AgentNode(Node):
     def __init__(self):
@@ -27,20 +29,47 @@ class AgentNode(Node):
         self.declare_parameter('hidden_dim', 256)
         self.declare_parameter('output_steering_gain', 1.0)
         self.declare_parameter('output_throttle_gain', 1.0)
-        self.declare_parameter('use_adaptive_downsampling', True)  # 新しいパラメータ
-        self.declare_parameter('scan_window_size', 1)  # フレーム履歴用
-
+        self.declare_parameter('use_adaptive_downsampling', True)
+        self.declare_parameter("curvature_inference", False)  # カーブ推論の有効/無効
+        self.declare_parameter('scan_window_size', 1)
+        self.declare_parameter('stability_window', 5)  # 安定化ウィンドウサイズ
+        self.declare_parameter('enable_speed_adjustment', False)  # 速度調整の有効/無効
+        self.declare_parameter('inference_display_interval', 50)  # 推論結果表示間隔
+        self.declare_parameter('final_gain', 1.2) 
         # パラメータの読み込み
         self.load_parameters()
 
         # スキャンデータの履歴を保持するためのウィンドウ
         self.scan_window = deque(maxlen=self.scan_window_size)
 
-        # モデルをデバイス上に配置
+        # SACモデルをデバイス上に配置
         self.model = self.load_model(self.ckpt_path,
                                      self.lidar_dim,
                                      self.action_dim,
                                      self.hidden_dim)
+
+        # LiDAR推論エンジンの初期化
+        self.lidar_inference = None
+        self.stabilized_inference = None
+        self.inference_enabled = False
+        self.modelpath="/home/tamiya/E2ETENTH-2025-JP/ckpts_kei/curvarate/lidar_curvature_model_weighted_20250623_135856.pth"
+        if self.curvature_inference:
+            try:
+                self.lidar_inference = F1TenthLiDARInferenceEngine(model_path=self.modelpath,device=self.device)
+                self.stabilized_inference = StabilizedLiDARInference(
+                    inference_engine=self.lidar_inference,
+                    stability_window=self.stability_window
+                )
+                self.inference_enabled = True
+                self.get_logger().info("✅ LiDAR curvature inference engine loaded successfully!")
+                self.get_logger().info("✅ Stabilized inference wrapper initialized!")
+            except Exception as e:
+                self.get_logger().error(f"⚠️ Could not load LiDAR inference engine: {e}")
+                self.get_logger().info("   Continuing without LiDAR curvature inference...")
+                self.inference_enabled = False
+
+        # 統計用カウンタ
+        self.step_count = 0
 
         # 動的パラメータ変更時のコールバック登録
         self.add_on_set_parameters_callback(self.on_param_change)
@@ -58,7 +87,9 @@ class AgentNode(Node):
             10)
 
         self.get_logger().info(
-            f"[STARTED] SAC model: {self.ckpt_path}, downsample_num: {self.downsample_num}, max_range: {self.max_range}, adaptive: {self.use_adaptive_downsampling}"
+            f"[STARTED] SAC model: {self.ckpt_path}, downsample_num: {self.downsample_num}, "
+            f"max_range: {self.max_range}, adaptive: {self.use_adaptive_downsampling}, "
+            f"curvature_inference: {self.inference_enabled}"
         )
 
     def load_parameters(self):
@@ -71,8 +102,12 @@ class AgentNode(Node):
         self.output_steering_gain = self.get_parameter('output_steering_gain').get_parameter_value().double_value
         self.output_throttle_gain = self.get_parameter('output_throttle_gain').get_parameter_value().double_value
         self.use_adaptive_downsampling = self.get_parameter('use_adaptive_downsampling').get_parameter_value().bool_value
+        self.curvature_inference = self.get_parameter("curvature_inference").get_parameter_value().bool_value
         self.scan_window_size = self.get_parameter('scan_window_size').get_parameter_value().integer_value
-
+        self.stability_window = self.get_parameter('stability_window').get_parameter_value().integer_value
+        self.enable_speed_adjustment = self.get_parameter('enable_speed_adjustment').get_parameter_value().bool_value
+        self.inference_display_interval = self.get_parameter('inference_display_interval').get_parameter_value().integer_value
+        self.final_gain = self.get_parameter('final_gain').get_parameter_value().double_value
     def on_param_change(self, params):
         success = True
         reason = ""
@@ -110,10 +145,22 @@ class AgentNode(Node):
             elif param.name == 'use_adaptive_downsampling':
                 self.use_adaptive_downsampling = param.value
                 self.get_logger().info(f"[UPDATED] use_adaptive_downsampling: {self.use_adaptive_downsampling}")
+            elif param.name == 'curvature_inference':
+                self.curvature_inference = param.value
+                self.get_logger().info(f"[UPDATED] curvature_inference: {self.curvature_inference}")
             elif param.name == 'scan_window_size':
                 self.scan_window_size = param.value
                 self.scan_window = deque(maxlen=self.scan_window_size)
                 self.get_logger().info(f"[UPDATED] scan_window_size: {self.scan_window_size}")
+            elif param.name == 'stability_window':
+                self.stability_window = param.value
+                self.get_logger().info(f"[UPDATED] stability_window: {self.stability_window}")
+            elif param.name == 'enable_speed_adjustment':
+                self.enable_speed_adjustment = param.value
+                self.get_logger().info(f"[UPDATED] enable_speed_adjustment: {self.enable_speed_adjustment}")
+            elif param.name == 'inference_display_interval':
+                self.inference_display_interval = param.value
+                self.get_logger().info(f"[UPDATED] inference_display_interval: {self.inference_display_interval}")
 
         # lidar_dim, action_dim, hidden_dim はモデル再読み込み時に使われるため、
         # ログ出力のみにとどめ、値の更新のみ行う
@@ -158,12 +205,6 @@ class AgentNode(Node):
         
         Returns:
             ダウンサンプリングされたデータ
-        
-        例:
-            # 1080ビーム（-135°～+135°）のLiDARデータを100点にダウンサンプリング
-            original_scan = np.array([...])  # 1080個の距離値
-            downsampled = downsample_single_frame(original_scan, 100)  # 100点（前方70点、側面30点）
-            # 前方±30度エリア（240ビーム）が高密度、側面エリア（840ビーム）が低密度でサンプリングされる
         """
         if target_size is None or scan_data.size == target_size:
             return scan_data
@@ -178,7 +219,6 @@ class AgentNode(Node):
         is_front = np.abs(angles) <= front_angle_range
         
         # サンプリング比率の計算
-        # 1080ビーム中、前方240ビーム（±30度）に重点を置く
         front_ratio = 0.7  # 前方エリアに70%のサンプル
         
         front_count = int(target_size * front_ratio)
@@ -224,15 +264,26 @@ class AgentNode(Node):
         
         return frames
     
-    def convert_action(self,action, steer_range: float=1.0, speed_range: float=1.0):
-    
+    def convert_action(self, action, steer_range: float=1.0, speed_range: float=1.0):
         steer = action[0] * steer_range
         speed = (action[1] + 1) / 2 * speed_range
         speed = min(speed, speed_range)
         action = [steer, speed]
-        print(action)
         return action
 
+    def control_function(self, x):
+        # 範囲外の値をクランプ
+        if x < 0.14:
+            x = 0.14
+        if x > 0.2:
+            x = 0.2
+                                            
+        if x <= 0.17:
+        # 区間1: 0.14 ≤ x ≤ 0.17 → 0.02 ≤ y ≤ 0.17
+            return 5 * x - 0.68
+        else:
+        # 区間2: 0.17 < x ≤ 0.2 → 0.17 < y ≤ 0.2
+            return x
     def _downsample(self, frame):
         """単一フレームのダウンサンプリング"""
         if self.use_adaptive_downsampling:
@@ -258,6 +309,8 @@ class AgentNode(Node):
         return np.hstack(processed)
 
     def scan_callback(self, msg):
+        self.step_count += 1
+        
         full_ranges = np.array(msg.ranges, dtype=np.float32)
         full_ranges = np.nan_to_num(full_ranges, nan=self.max_range, posinf=self.max_range)
 
@@ -277,6 +330,47 @@ class AgentNode(Node):
             indices = np.linspace(0, num_beams - 1, self.downsample_num).astype(int)
             sampled_ranges = full_ranges[indices]
 
+        # 🆕 カーブクラス推論の実行
+        current_stable_result = None
+        speed_factor = 1.0
+        
+        if self.inference_enabled and self.stabilized_inference:
+            try:
+                result = self.stabilized_inference.predict_and_stabilize(
+                    scan_data=sampled_ranges,
+                    current_step=self.step_count
+                )
+                classs = result['inference_result']['predicted_class']
+                self.get_logger().info(f"{classs}")
+                # 現在の安定した結果を取得
+                current_stable_result = self.stabilized_inference.get_current_stable_class()
+                
+                # 安定した推論結果に基づく速度調整係数の計算
+                if current_stable_result and current_stable_result['stable_result'] is not None:
+                    curvature_class = current_stable_result['stable_class']
+                    confidence = current_stable_result['stable_confidence']
+                    
+                    # 高信頼度の安定した結果に基づいて速度係数を調整
+                    if confidence > 0.8:
+                        if curvature_class == 2 or curvature_class == 1:  # 中程度のカーブ
+                            speed_factor = 1.0
+                        elif curvature_class == 3:  # 急カーブクラスの場合
+                            speed_factor = 0.8
+                        elif curvature_class == 0:  # 直線クラスの場合
+                            speed_factor = 1.5
+                
+                # 推論結果の定期的な表示
+                if self.step_count % self.inference_display_interval == 0:
+                    if result['is_updated'] and result['stable_result']:
+                        self.get_logger().info(
+                            f"🎯 Curvature Inference [Step {self.step_count}]: "
+                            f"Class={curvature_class}, Confidence={confidence:.3f}, "
+                            f"Speed Factor={speed_factor:.2f}"
+                        )
+                    
+            except Exception as e:
+                self.get_logger().error(f"⚠️ Curvature inference error at step {self.step_count}: {e}")
+
         # LiDARデータをPyTorchテンソルに変換
         scan_tensor = torch.tensor(sampled_ranges, dtype=torch.float32).unsqueeze(0).to(self.device)
 
@@ -285,27 +379,35 @@ class AgentNode(Node):
                 # SACモデルの決定論的推論：sample()の第3戻り値（平均アクション）を使用
                 _, _, action = self.model.sample(scan_tensor)
                 
-                ## cv_action = self.convert_action(action,)
-
                 steer, throttle = action.tolist()[0]
-                throttle = (throttle+1.0)*0.5
+                throttle = (throttle + 1.0) * 0.5
 
         except Exception as e:
-            self.get_logger().error(f"Inference failed: {e}")
+            self.get_logger().error(f"SAC inference failed: {e}")
             return
 
         # 出力ゲインを適用
         steer *= self.output_steering_gain
         throttle *= self.output_throttle_gain
+        throttle = self.control_function(throttle)*self.final_gain
+
+
+        # 🆕 カーブクラス推論に基づく速度調整（オプション）
+        if self.enable_speed_adjustment and self.inference_enabled:
+            throttle *= speed_factor
+            if self.step_count % self.inference_display_interval == 0 and speed_factor != 1.0:
+                self.get_logger().info(f"🚗 Speed adjusted by curvature inference: {speed_factor:.2f}")
 
         # ゲイン適用後に値をクリッピングして安全な範囲に収める
         steer = float(np.clip(steer, -1.0, 1.0))
         throttle = float(np.clip(throttle, 0.0, 1.0))
+        
 
         drive_msg = AckermannDrive()
         drive_msg.steering_angle = steer
         drive_msg.speed = throttle
         self.publisher.publish(drive_msg)
+
 
 def main(args=None):
     rclpy.init(args=args)
@@ -316,6 +418,19 @@ def main(args=None):
     except KeyboardInterrupt:
         pass
     finally:
+        # 最終統計の表示
+        if node.inference_enabled and node.stabilized_inference:
+            try:
+                final_stats = node.stabilized_inference.get_statistics()
+                if final_stats:
+                    node.get_logger().info("🏁 Final Curvature Inference Statistics:")
+                    node.get_logger().info(f"   Total Predictions: {final_stats['total_predictions']}")
+                    node.get_logger().info(f"   Stable Updates: {final_stats['stable_updates']}")
+                    node.get_logger().info(f"   Stability Rate: {final_stats['stability_rate']:.1f}%")
+                    node.get_logger().info(f"   Final Stable Class: {final_stats['current_stable_class']}")
+            except:
+                pass
+        
         if rclpy.ok():
             node.destroy_node()
             rclpy.shutdown()

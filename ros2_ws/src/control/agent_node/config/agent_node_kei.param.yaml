@@ -1,11 +1,16 @@
 /**:
   ros__parameters:
     downsample_num: 100
-    ckpt_path: ../ckpts/best_model_reward_658.10.pth
+    ckpt_path: /home/tamiya/E2ETENTH-2025-JP/ckpts_kei/625kei_center/finetuned_epoch_086_loss_0.002639.pth
     lidar_dim: 1080
     action_dim: 2
     hidden_dim: 256
     output_steering_gain: 1.0
-    output_throttle_gain: 1.0
+    output_throttle_gain: 0.3
     use_adaptive_downsampling: true
     scan_window_size: 1
+    lidar_front: 0.7
+    curvature_inference: False
+    enable_speed_adjustment: False
+    inference_display_interval: 50
+    final_gain: 1.5
