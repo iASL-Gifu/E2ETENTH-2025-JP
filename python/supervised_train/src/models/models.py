@@ -5,6 +5,7 @@ except ImportError:
     th_compile = None
     print("[!] torch.compile is NOT available. (PyTorch < 2.0 or missing dependencies)")
 
+from .mlp import SimpleMLP
 from .cnn import (
     TinyLidarNet,
     TinyLidarLstmNet,
@@ -14,10 +15,30 @@ from .cnn import (
     TinyLidarActionConvLstmNet,
     TinyLidarConvTransformerNet
 )
-
 from .gnn import LidarGCN, LidarGcnLstmNet, LidarGAT, LidarGatLstmNet
-
 from .maxt import LidarRegressor, get_model_cfg 
+
+def load_mlp_model(input_dim, output_dim, compile_model: bool = False):
+    """
+    MLPベースのモデルをロードし、オプションでtorch.compileでコンパイルする。
+    Args:
+        input_dim (int): モデルの入力次元。
+        output_dim (int): モデルの出力次元。
+        compile_model (bool): Trueの場合、モデルをtorch.compileでコンパイルする。
+    Returns:
+        torch.nn.Module: ロードまたはコンパイルされたモデルインスタンス。
+    """
+    model = SimpleMLP(input_dim, output_dim)
+    
+    # torch.compile の適用
+    if compile_model and th_compile:
+        print("[*] Compiling MLP Model with torch.compile...")
+        model = th_compile(model)
+        print("[+] MLP Model successfully compiled!")
+    elif compile_model and not th_compile:
+        print("[!] Warning: torch.compile requested for MLP Model but not available.")
+    
+    return model
 
 def load_cnn_model(model_name, input_dim, output_dim, compile_model: bool = False):
     """
