@@ -5,8 +5,7 @@ except ImportError:
     th_compile = None
     print("[!] torch.compile is NOT available. (PyTorch < 2.0 or missing dependencies)")
 
-from .gnn import LidarGCN, LidarGAT, LidarGcnLstmNet, LidarGatLstmNet
-
+from .mlp import SimpleMLP
 from .cnn import (
     TinyLidarNet,
     TinyLidarLstmNet,
@@ -16,7 +15,30 @@ from .cnn import (
     TinyLidarActionConvLstmNet,
     TinyLidarConvTransformerNet
 )
+from .gnn import LidarGCN, LidarGcnLstmNet, LidarGAT, LidarGatLstmNet
 from .maxt import LidarRegressor, get_model_cfg 
+
+def load_mlp_model(input_dim, output_dim, compile_model: bool = False):
+    """
+    MLPベースのモデルをロードし、オプションでtorch.compileでコンパイルする。
+    Args:
+        input_dim (int): モデルの入力次元。
+        output_dim (int): モデルの出力次元。
+        compile_model (bool): Trueの場合、モデルをtorch.compileでコンパイルする。
+    Returns:
+        torch.nn.Module: ロードまたはコンパイルされたモデルインスタンス。
+    """
+    model = SimpleMLP(input_dim, output_dim)
+    
+    # torch.compile の適用
+    if compile_model and th_compile:
+        print("[*] Compiling MLP Model with torch.compile...")
+        model = th_compile(model)
+        print("[+] MLP Model successfully compiled!")
+    elif compile_model and not th_compile:
+        print("[!] Warning: torch.compile requested for MLP Model but not available.")
+    
+    return model
 
 def load_cnn_model(model_name, input_dim, output_dim, compile_model: bool = False):
     """
@@ -30,7 +52,9 @@ def load_cnn_model(model_name, input_dim, output_dim, compile_model: bool = Fals
         torch.nn.Module: ロードまたはコンパイルされたモデルインスタンス。
     """
     model = None
-    if model_name == 'TinyLidarNet':  
+    if model_name == 'MLP':
+        model = SimpleMLP(input_dim, output_dim)
+    elif model_name == 'TinyLidarNet':  
         model = TinyLidarNet(input_dim, output_dim)
     elif model_name == 'TinyLidarLstmNet':
         model = TinyLidarLstmNet(input_dim, output_dim, lstm_hidden_dim=128, lstm_layers=1)
@@ -60,7 +84,7 @@ def load_cnn_model(model_name, input_dim, output_dim, compile_model: bool = Fals
         print(f"[!] Warning: torch.compile requested for {model_name} but not available.")
 
     return model
-
+    
 def load_gnn_model(model_name, input_dim, hidden_dim, output_dim, pool_method='mean'):
 
     if model_name == 'LidarGCN':
