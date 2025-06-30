@@ -1,0 +1,19 @@
+<launch>
+
+  <arg name="action_filter"  default="$(find-pkg-share action_filter)/config/action_filter.param.yaml"/>
+  <!-- action filter node -->
+  <node pkg="action_filter" 
+        exec="action_filter_node"
+        name="action_filter_node"
+        output="screen">
+
+    <!-- パラメータ -->
+    <param from="$(var action_filter)"/>
+    <!-- トピックのremap -->
+    <remap from="/cmd_drive" to="/ackermann_cmd"/>
+    <remap from="/cmd_drive_filtered" to="/ackermann_cmd_filtered"/>
+
+  </node>
+
+
+</launch>

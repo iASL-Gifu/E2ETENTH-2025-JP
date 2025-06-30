@@ -32,7 +32,16 @@
     <include file="$(find-pkg-share jetracer_node)/launch/jetracer.launch.xml">
     </include>
 
+    <!-- Action filter ノード -->
+    <!-- 変数で切り替え可能にする -->
+    <arg name="use_filter" default="false" description="if use action filter"/>
+    <group if="$(var use_filter)">
+        <include file="$(find-pkg-share action_filter)/launch/filter.launch.xml">
+        </include>
+    </group>
 
+    <!-- Joy Manager ノード -->
+    <!-- advanced joy nodeと通常のjoy nodeを切り替える -->
     <arg name="advance" default="false" description="if use advanced joy node"/>
     <group unless="$(var advance)">
         <include file="$(find-pkg-share joy_manager)/launch/teleop.launch.xml" />
