@@ -51,8 +51,8 @@ class MAXT1dNode(Node):
         self.max_range = self.get_parameter('max_range').get_parameter_value().double_value
         self.input_dim = self.get_parameter('input_dim').get_parameter_value().integer_value
         self.output_dim = self.get_parameter('output_dim').get_parameter_value().integer_value
-        self.backbone_stage = self.get_parameter('backbone_stage').get_parameter_value().string_value
-        self.neck_stage = self.get_parameter('neck_stage').get_parameter_value().string_value
+        self.backbone_stage = self.get_parameter('backbone_stage').get_parameter_value().integer_value
+        self.neck_stage = self.get_parameter('neck_stage').get_parameter_value().integer_value
         self.debug = self.get_parameter('debug').get_parameter_value().bool_value
 
     def on_param_change(self, params):
