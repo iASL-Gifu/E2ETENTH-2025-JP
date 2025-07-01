@@ -102,8 +102,8 @@ class MAXT1dNode(Node):
             
             model = load_maxt_model(
                 size=self.model_size,
-                backbone_stage=self.backbone_stage,
-                neck_stage=self.neck_stage
+                backbone_stages=self.backbone_stage,
+                fpn_stages=self.neck_stage
             )
             
             if not os.path.exists(self.model_path):
