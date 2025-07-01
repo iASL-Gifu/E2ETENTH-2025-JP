@@ -1,6 +1,6 @@
 <launch>
     <!-- Realsense カメラの起動 -->
-    <include file="$(find-pkg-share realsense2_camera)/launch/rs_launch.py">
+    <!-- <include file="$(find-pkg-share realsense2_camera)/launch/rs_launch.py">
         <arg name="enable_color" value="true" />
         <arg name="enable_depth" value="false" />
         <arg name="enable_infra1" value="false" />
@@ -9,7 +9,7 @@
         <arg name="enable_accel" value="false" />
         <arg name="rgb_camera.profile" value="640x480x30" />
         
-    </include>
+    </include> -->
 
     <!-- URG LiDAR ノードの起動 -->
     <include file="$(find-pkg-share urg_node2)/launch/urg_node2.launch.py">
@@ -31,14 +31,6 @@
     <!-- JetRacer 制御ノードの起動 -->
     <include file="$(find-pkg-share jetracer_node)/launch/jetracer.launch.xml">
     </include>
-
-    <!-- Action filter ノード -->
-    <!-- 変数で切り替え可能にする -->
-    <arg name="use_filter" default="false" description="if use action filter"/>
-    <group if="$(var use_filter)">
-        <include file="$(find-pkg-share action_filter)/launch/filter.launch.xml">
-        </include>
-    </group>
 
     <!-- Joy Manager ノード -->
     <!-- advanced joy nodeと通常のjoy nodeを切り替える -->
