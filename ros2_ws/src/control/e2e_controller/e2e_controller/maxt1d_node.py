@@ -6,9 +6,10 @@ from rcl_interfaces.msg import SetParametersResult
 import torch
 import numpy as np
 import os
+import time 
 
 # ファクトリ関数をインポート
-from .models.models import load_maxt_model 
+from .models.models import load_maxt_model
 
 class MAXT1dNode(Node):
     def __init__(self):
@@ -23,6 +24,9 @@ class MAXT1dNode(Node):
         self.declare_parameter('max_range', 30.0)
         self.declare_parameter('input_dim', 181)
         self.declare_parameter('output_dim', 2)
+        self.declare_parameter('backbone_stage', 'all')
+        self.declare_parameter('neck_stage', 'all')
+        self.declare_parameter('debug', False) 
 
         # --- 状態変数の初期化 ---
         self.model = None
@@ -38,7 +42,7 @@ class MAXT1dNode(Node):
         self.subscription = self.create_subscription(LaserScan, '/scan', self.scan_callback, 10)
         self.publisher = self.create_publisher(AckermannDrive, '/cmd_drive', 10)
 
-        self.get_logger().info(f"[STARTED] Node is ready. Model Size: {self.model_size}")
+        self.get_logger().info(f"[STARTED] Node is ready. Model Size: {self.model_size}, Backbone: {self.backbone_stage}, Neck: {self.neck_stage}")
 
     def load_parameters(self):
         """ROSパラメータを読み込む"""
@@ -47,16 +51,27 @@ class MAXT1dNode(Node):
         self.max_range = self.get_parameter('max_range').get_parameter_value().double_value
         self.input_dim = self.get_parameter('input_dim').get_parameter_value().integer_value
         self.output_dim = self.get_parameter('output_dim').get_parameter_value().integer_value
+        self.backbone_stage = self.get_parameter('backbone_stage').get_parameter_value().string_value
+        self.neck_stage = self.get_parameter('neck_stage').get_parameter_value().string_value
+        self.debug = self.get_parameter('debug').get_parameter_value().bool_value
 
     def on_param_change(self, params):
         """パラメータの動的変更をハンドルし、必要ならモデルをリロード"""
-        # モデル構造に関わるパラメータが変更されたかどうかのフラグ
-        reload_needed = any(p.name in ['model_size', 'model_path', 'input_dim', 'output_dim'] for p in params)
+        reload_needed = any(p.name in ['model_size', 'model_path', 'input_dim', 'output_dim', 'backbone_stage', 'neck_stage'] for p in params)
         
         # 実際にパラメータをクラス変数に反映
         for param in params:
             if hasattr(self, param.name):
-                setattr(self, param.name, param.value)
+                # パラメータの型に応じて値を取得するように修正
+                param_type = type(getattr(self, param.name))
+                if param_type == bool:
+                    setattr(self, param.name, param.value)
+                elif param_type == int:
+                    setattr(self, param.name, param.value)
+                elif param_type == float:
+                     setattr(self, param.name, param.value)
+                else: # stringなど
+                    setattr(self, param.name, param.value)
 
         if reload_needed:
             self.get_logger().info("Model-related parameter changed. Reloading model...")
@@ -64,20 +79,31 @@ class MAXT1dNode(Node):
             if self.model is None:
                 self.get_logger().error("Model reload failed.")
                 return SetParametersResult(successful=False, reason="Model reload failed.")
-            self.get_logger().info(f"Model reloaded. New model size: {self.model_size}")
+            self.get_logger().info(f"Model reloaded. New model size: {self.model_size}, Backbone: {self.backbone_stage}, Neck: {self.neck_stage}")
+        
+        
+        for param in params:
+            if param.name == 'debug':
+                self.get_logger().info(f"Debug mode set to: {self.debug}")
 
         return SetParametersResult(successful=True)
     
     def load_and_prepare_model(self):
         """モデルをインスタンス化し、学習済み重みをロードして準備する"""
         try:
+            # --- 変更: ログにbackbone_stageとneck_stageを追加 ---
             self.get_logger().info(
-                f"Loading model '{self.model_size}' with input_dim={self.input_dim}, output_dim={self.output_dim}"
+                f"Loading model '{self.model_size}' with: \n"
+                f"  - input_dim: {self.input_dim}\n"
+                f"  - output_dim: {self.output_dim}\n"
+                f"  - backbone_stage: '{self.backbone_stage}'\n"
+                f"  - neck_stage: '{self.neck_stage}'"
             )
             
-            # ファクトリ関数を使い、指定されたサイズのモデルをロード
             model = load_maxt_model(
                 size=self.model_size,
+                backbone_stage=self.backbone_stage,
+                neck_stage=self.neck_stage
             )
             
             if not os.path.exists(self.model_path):
@@ -122,8 +148,16 @@ class MAXT1dNode(Node):
                 # ここではバッチサイズ1, チャンネル1なので [1, 1, input_dim]
                 scan_tensor = torch.tensor(sampled_ranges, dtype=torch.float32).unsqueeze(0).unsqueeze(0).to(self.device)
                 
+                if self.debug:
+                    start_time = time.perf_counter()
+
                 # --- 3. モデルで推論 ---
                 result_dict = self.model(scan_tensor)
+
+                if self.debug:
+                    end_time = time.perf_counter()
+                    inference_time_ms = (end_time - start_time) * 1000
+                    self.get_logger().info(f"Inference Time: {inference_time_ms:.3f} ms")
                 
                 # --- 4. 結果の処理 ---
                 predictions_dict = result_dict['output']
@@ -141,7 +175,6 @@ class MAXT1dNode(Node):
         drive_msg.steering_angle = float(steer)
         drive_msg.speed = float(throttle)
         self.publisher.publish(drive_msg)
-
 
 def main(args=None):
     rclpy.init(args=args)

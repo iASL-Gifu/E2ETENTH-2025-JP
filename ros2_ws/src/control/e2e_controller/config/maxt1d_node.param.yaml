@@ -1,7 +1,9 @@
 /**:
   ros__parameters:
 
-    model_size: tiny 
+    model_size: pico 
+    backbone_stage: 3
+    neck_stage: 3
     model_path: .pt
     max_range: 30.0
     input_dim: 1081

@@ -1,18 +1,36 @@
 <launch>
+
+  <arg name="maxt1d_node_param"  default="$(find-pkg-share e2e_controller)/config/maxt1d_node.param.yaml"/>
+  <arg name="use_filter" default="false" description="if use action filter"/>
+
+  <group if="$(var use_filter)">
+
+      <include file="$(find-pkg-share action_filter)/launch/filter.launch.xml">
+      </include>
+
+      <node pkg="e2e_controller" 
+            exec="maxt1d_node"
+            name="maxt1d_node"
+            output="screen">
+
+          <param from="$(var maxt1d_node_param)"/>
+          <remap from="/scan" to="/scan_filtered"/>
+          <remap from="/cmd_drive" to="/ackermann_cmd_raw"/>
+      </node>
+  </group>
+
+  <group unless="$(var use_filter)">
   
-  <arg name="maxt1d_node"  default="$(find-pkg-share e2e_controller)/config/maxt1d_node.param.yaml"/>
-  <!-- cnn node -->
-  <node pkg="e2e_controller" 
-        exec="maxt1d_node"
-        name="maxt1d_node"
-        output="screen">
+    <node pkg="e2e_controller" 
+          exec="maxt1d_node"
+          name="maxt1d_node"
+          output="screen">
 
-    <!-- パラメータ -->
-    <param from="$(var maxt1d_node)"/>
-    <!-- トピックのremap -->
-    <remap from="/scan" to="/scan_filtered"/>
-    <remap from="/cmd_drive" to="/ackermann_cmd"/>
-  </node>
+        <param from="$(var maxt1d_node_param)"/>
+        <remap from="/scan" to="/scan_filtered"/>
+        <remap from="/cmd_drive" to="/ackermann_cmd"/>
+    </node>
 
+  </group>
 
 </launch>
