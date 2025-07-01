@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 #include <numeric>
-#include <algorithm>
+#include <algorithm> // std::sort, std::min, std::max のために必要
 #include <functional>
 #include <cmath> 
 
@@ -96,7 +96,7 @@ private:
     }
 
     auto filtered_msg = ackermann_msgs::msg::AckermannDrive();
-    filtered_msg.stamp = this->get_clock()->now();
+    
 
     if (filter_type_ == "average") {
       apply_average_filter(filtered_msg);
@@ -157,8 +157,8 @@ private:
     msg.speed *= speed_scale_ratio_;
     msg.steering_angle *= steer_scale_ratio_;
     
-    msg.speed = std::clamp(msg.speed, 0.0, 1.0);
-    msg.steering_angle = std::clamp(msg.steering_angle, -1.0, 1.0);
+    msg.speed = std::max(0.0f, std::min(msg.speed, 1.0f));
+    msg.steering_angle = std::max(-1.0f, std::min(msg.steering_angle, 1.0f));
   }
 
   // 新しい 'advance' スケールフィルタ
@@ -177,9 +177,8 @@ private:
     // 操舵角のスケールは常に一定
     msg.steering_angle *= steer_scale_ratio_;
 
-    // 最終的な値を指定された範囲にクリップ(clamp)する
-    msg.speed = std::clamp(msg.speed, 0.0, 1.0);
-    msg.steering_angle = std::clamp(msg.steering_angle, -1.0, 1.0);
+    msg.speed = std::max(0.0f, std::min(msg.speed, 1.0f));
+    msg.steering_angle = std::max(-1.0f, std::min(msg.steering_angle, 1.0f));
   }
   
   rclcpp::Subscription<ackermann_msgs::msg::AckermannDrive>::SharedPtr subscription_;
