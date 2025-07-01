@@ -10,8 +10,8 @@
     <!-- パラメータ -->
     <param from="$(var action_filter)"/>
     <!-- トピックのremap -->
-    <remap from="/cmd_drive" to="/ackermann_cmd"/>
-    <remap from="/cmd_drive_filtered" to="/ackermann_cmd_filtered"/>
+    <remap from="/cmd_drive" to="/ackermann_cmd_raw"/>
+    <remap from="/cmd_drive_filtered" to="/ackermann_cmd"/>
 
   </node>
 
