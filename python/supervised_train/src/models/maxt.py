@@ -24,28 +24,28 @@ def get_model_cfg(
         raise ValueError("fpn_stages cannot be greater than backbone_stages")
 
     if model_size == 'tiny':
-        dims = [32, 64, 128, 256]
-        num_blocks = [1, 1, 1, 1]
+        dims = [32, 64, 128]
+        num_blocks = [1, 1, 1]
         neck_depth = 0.33
         dim_head = 32
     elif model_size == 'small':
-        dims = [48, 96, 192, 384]
-        num_blocks = [1, 1, 1, 1]
+        dims = [48, 96, 192]
+        num_blocks = [1, 1, 1]
         neck_depth = 0.67
         dim_head = 24
     elif model_size == 'base':
-        dims = [64, 128, 256, 512]
-        num_blocks = [1, 1, 1, 1]
+        dims = [64, 128, 256]
+        num_blocks = [1, 1, 1]
         neck_depth = 1.0
         dim_head = 32
     elif model_size == 'nano':
-        dims = [24, 48, 96, 192]  
-        num_blocks = [1, 1, 1, 1]
+        dims = [24, 48, 96]  
+        num_blocks = [1, 1, 1]
         neck_depth = 0.25          
         dim_head = 24              
     elif model_size == 'pico':
-        dims = [16, 32, 64, 128]   
-        num_blocks = [1, 1, 1, 1]
+        dims = [16, 32, 64]   
+        num_blocks = [1, 1, 1]
         neck_depth = 0.25
         dim_head = 16              
     else: 
