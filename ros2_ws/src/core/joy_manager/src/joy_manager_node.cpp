@@ -31,13 +31,13 @@ public:
     // --- パラメータ宣言＆取得 ---
     declare_parameter<double>("speed_scale", 1.0);
     declare_parameter<double>("steer_scale", 1.0);
-
     declare_parameter<int>("joy_button_index",   2);
     declare_parameter<int>("ack_button_index",   3);
     declare_parameter<int>("start_button_index", 9);
     declare_parameter<int>("stop_button_index",  8);
-
     declare_parameter<double>("timer_hz", 40.0);
+    // 新しくタイムアウトパラメータを追加
+    declare_parameter<double>("joy_timeout_sec", 0.5); // 例: 0.5秒間Joyメッセージが来なければ停止
 
     get_parameter("speed_scale", speed_scale_);
     get_parameter("steer_scale", steer_scale_);
@@ -46,9 +46,11 @@ public:
     get_parameter("start_button_index", start_button_index_);
     get_parameter("stop_button_index", stop_button_index_);
     get_parameter("timer_hz", timer_hz_);
+    get_parameter("joy_timeout_sec", joy_timeout_sec_);
 
     last_autonomy_msg_.speed = 0.0;
     last_autonomy_msg_.steering_angle = 0.0;
+    last_joy_msg_time_ = this->get_clock()->now(); // 初期化
 
     // --- サブスクライバ／パブリッシャ設定 ---
     joy_sub_ = create_subscription<sensor_msgs::msg::Joy>(
@@ -85,6 +87,8 @@ private:
 
   void joy_callback(const sensor_msgs::msg::Joy::SharedPtr msg)
   {
+    last_joy_msg_time_ = this->get_clock()->now(); // Joyメッセージ受信時刻を更新
+
     // 0) start/stop ボタン（連射防止）
     bool curr_start = (msg->buttons.size() > start_button_index_
                        && msg->buttons[start_button_index_] == 1);
@@ -171,6 +175,17 @@ private:
   void timer_callback()
   {
     ackermann_msgs::msg::AckermannDrive out;
+    rclcpp::Time current_time = this->get_clock()->now();
+
+    // Joyメッセージのタイムアウトチェック
+    if ((current_time - last_joy_msg_time_).seconds() > joy_timeout_sec_) {
+      if (joy_active_ || ack_active_) { // タイムアウトで停止する場合のみログ出力
+        RCLCPP_WARN(get_logger(), "Joy message timed out! Stopping the vehicle.");
+      }
+      joy_active_ = false;
+      ack_active_ = false; // 強制停止
+    }
+
     if (joy_active_) {
       out.speed          = joy_speed_;
       out.steering_angle = joy_steer_;
@@ -197,17 +212,17 @@ private:
 
   // パラメータ
   double speed_scale_, steer_scale_;
-  // invert_speed_, invert_steer_ メンバ変数を削除
-  // bool invert_speed_, invert_steer_;
   int joy_button_index_, ack_button_index_;
   int start_button_index_, stop_button_index_;
   double timer_hz_;
+  double joy_timeout_sec_; // 追加: Joyメッセージのタイムアウト時間
 
   // 状態
   bool joy_active_, ack_active_;
   double joy_speed_, joy_steer_;
   ackermann_msgs::msg::AckermannDrive last_autonomy_msg_;
   bool ack_received_{false};
+  rclcpp::Time last_joy_msg_time_; // 追加: 最後にJoyメッセージを受信した時刻
 
   // 連射防止フラグ
   bool prev_start_pressed_, prev_stop_pressed_;
