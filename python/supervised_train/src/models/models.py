@@ -17,6 +17,7 @@ from .cnn import (
 )
 from .gnn import LidarGCN, LidarGcnLstmNet, LidarGAT, LidarGatLstmNet
 from .maxt import LidarRegressor, get_model_cfg 
+from ..utils.helper import get_model_size_in_m
 
 def load_mlp_model(input_dim, output_dim, compile_model: bool = False):
     """
@@ -29,6 +30,7 @@ def load_mlp_model(input_dim, output_dim, compile_model: bool = False):
         torch.nn.Module: ロードまたはコンパイルされたモデルインスタンス。
     """
     model = SimpleMLP(input_dim, output_dim)
+    print(get_model_size_in_m(model))
     
     # torch.compile の適用
     if compile_model and th_compile:
@@ -75,6 +77,8 @@ def load_cnn_model(model_name, input_dim, output_dim, compile_model: bool = Fals
     else:
         raise ValueError(f"Unknown model name: {model_name}")
     
+    print(get_model_size_in_m(model))
+
     # torch.compile の適用
     if compile_model and th_compile:
         print(f"[*] Compiling {model_name} with torch.compile...")
@@ -114,6 +118,7 @@ def load_gnn_model(model_name, input_dim, hidden_dim, output_dim, pool_method='m
     else:
         raise ValueError(f"Unknown GNN model name: {model_name}")
     
+    
 
 def load_maxt_model(size: str, backbone_stages: int = 4, fpn_stages: int = 4, compile_model: bool = False):
     """
@@ -128,6 +133,7 @@ def load_maxt_model(size: str, backbone_stages: int = 4, fpn_stages: int = 4, co
     """
     cfg = get_model_cfg(size, backbone_stages, fpn_stages)
     model = LidarRegressor(cfg)
+    print(get_model_size_in_m(model))
 
     # torch.compile の適用
     if compile_model and th_compile:
