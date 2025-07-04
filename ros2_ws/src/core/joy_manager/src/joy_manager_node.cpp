@@ -36,7 +36,6 @@ public:
     declare_parameter<int>("start_button_index", 9);
     declare_parameter<int>("stop_button_index",  8);
     declare_parameter<double>("timer_hz", 40.0);
-    // 新しくタイムアウトパラメータを追加
     declare_parameter<double>("joy_timeout_sec", 0.5); // 例: 0.5秒間Joyメッセージが来なければ停止
 
     get_parameter("speed_scale", speed_scale_);
