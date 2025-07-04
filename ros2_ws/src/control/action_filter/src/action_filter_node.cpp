@@ -168,14 +168,13 @@ private:
     RCLCPP_INFO(this->get_logger(), "------------------------------------");
   }
 
-  // === フィルタ適用ロジックを新しい変数に対応 ===
   void apply_normal_scale_filter(ackermann_msgs::msg::AckermannDrive &msg)
   {
     msg.speed *= normal_speed_scale_ratio_;
     msg.steering_angle *= normal_steer_scale_ratio_;
     
-    msg.speed = std::max(0.0, std::min(msg.speed, 1.0));
-    msg.steering_angle = std::max(-1.0, std::min(msg.steering_angle, 1.0));
+    msg.speed = std::max(0.0f, std::min(msg.speed, 1.0f));
+    msg.steering_angle = std::max(-1.0f, std::min(msg.steering_angle, 1.0f));
   }
 
   void apply_advanced_scale_filter(ackermann_msgs::msg::AckermannDrive &msg)
@@ -187,11 +186,11 @@ private:
     }
     msg.steering_angle *= advance_steer_scale_ratio_;
 
-    msg.speed = std::max(0.0, std::min(msg.speed, 1.0));
-    msg.steering_angle = std::max(-1.0, std::min(msg.steering_angle, 1.0));
+    // ★ 修正点: 0.0, 1.0, -1.0 を float型リテラル (f付き) に変更
+    msg.speed = std::max(0.0f, std::min(msg.speed, 1.0f));
+    msg.steering_angle = std::max(-1.0f, std::min(msg.steering_angle, 1.0f));
   }
 
-  // --- 変更のないヘルパー関数群 ---
   void apply_average_filter(ackermann_msgs::msg::AckermannDrive &msg)
   {
     if (speed_buffer_.empty()) return;
