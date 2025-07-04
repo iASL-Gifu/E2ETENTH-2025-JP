@@ -13,10 +13,10 @@ def clear_screen():
 
 def run_command(command):
     """subprocessでコマンドを実行し、結果を返す"""
-    return subprocess.run(command, capture_output=True, text=True)
+    return subprocess.run(command, capture_output=True, text=True, check=False)
 
-def select_node_loop():
-    """ノードを選択するループ。選択されたノード名を返すか、Noneを返す"""
+def select_node():
+    """ROS2ノードを選択する画面を表示し、選択されたノード名を返す"""
     while True:
         clear_screen()
         print("🔍 アクティブなROS2ノードを検索中...")
@@ -29,41 +29,33 @@ def select_node_loop():
                 "どうしますか？",
                 choices=[
                     Choice("リトライ", value="retry"),
-                    Choice("終了", value="exit")
+                    Choice("戻る", value="back")
                 ]
             ).ask()
-            if action == "exit" or action is None:
+            if action == "back" or action is None:
                 return None
-            time.sleep(1)
             continue
 
-        # Choiceオブジェクトを使い、表示名(title)と内部値(value)を分ける
-        numbered_node_choices = []
-        for i, node in enumerate(nodes, 1):
-            numbered_node_choices.append(
-                Choice(title=f"[{i}] {node}", value=node)
-            )
-
-        choices = numbered_node_choices + [
+        node_choices = [Choice(f"[{i+1}] {node}", value=node) for i, node in enumerate(nodes)]
+        choices = node_choices + [
             questionary.Separator(),
-            Choice("ノードリストを更新", value="reload"),
-            Choice("終了", value="exit")
+            Choice("リストを更新", value="reload"),
+            Choice("メインメニューに戻る", value="back")
         ]
         
-        # questionaryはvalue値を返すので、後続の処理は変更不要
         selected = questionary.select(
             "パラメータをロードするノードを選択してください:",
             choices=choices
         ).ask()
 
-        if selected is None or selected == "exit":
+        if selected is None or selected == "back":
             return None
         if selected == "reload":
             continue
         
         return selected
 
-def select_directory_loop():
+def select_directory():
     """対話的にディレクトリを選択し、そのパスを返す"""
     current_path = os.getcwd()
     while True:
@@ -80,144 +72,147 @@ def select_directory_loop():
         
         dir_items = [item for item in items if os.path.isdir(os.path.join(current_path, item))]
         
-        numbered_item_choices = []
-        # 抽出したディレクトリリストに対して番号を振る
-        for i, item in enumerate(dir_items, 1):
-            display_name = f"[{i}] [{item}]/"
-            numbered_item_choices.append(Choice(title=display_name, value=item))
+        item_choices = [Choice(f"[{i+1}] [{item}]/", value=item) for i, item in enumerate(dir_items)]
         
         choices = [
             Choice("✅ [ このディレクトリを決定する ]", value="."),
-            Choice("⏪../", value=".."),
-            questionary.Separator('---------- ディレクトリ一覧 ----------') # ファイルがなくなったので名称変更
-        ] + numbered_item_choices
+            Choice("⏪ ../ (親ディレクトリへ)", value=".."),
+            questionary.Separator('---------- ディレクトリ一覧 ----------'),
+        ] + item_choices + [
+            questionary.Separator(),
+            Choice("メインメニューに戻る", value="cancel")
+        ]
 
         selected = questionary.select(
-            "移動するディレクトリを選択 or このディレクトリを決定 (矢印キーで選択):",
+            "移動するディレクトリを選択 or このディレクトリを決定:",
             choices=choices
         ).ask()
 
-        if selected is None: # Ctrl+C
+        if selected is None or selected == "cancel":
             return None
-        
         elif selected == ".":
             return current_path
         elif selected == "..":
             current_path = os.path.dirname(current_path)
-        
-        
         else:
             current_path = os.path.join(current_path, selected)
 
-def param_load_loop(node_name, param_dir):
-    """指定されたノードに対して、YAMLの選択とロードを繰り返すループ"""
-    while True:
-        clear_screen()
-        print(f"✅ 現在の選択ノード: {node_name}")
-        print(f"📂 対象ディレクトリ: {param_dir}\n")
+def select_and_load_param(node_name, param_dir):
+    """YAMLファイルを選択してパラメータをロードする"""
+    clear_screen()
+    print(f"🎯 現在のノード: {node_name}")
+    print(f"📂 対象ディレクトリ: {param_dir}\n")
+
+    yaml_files = glob.glob(os.path.join(param_dir, '*.yaml'))
+    yaml_files += glob.glob(os.path.join(param_dir, '*.yml'))
+
+    if not yaml_files:
+        print(f"❌ ディレクトリ '{param_dir}' にYAMLファイルが見つかりません。")
+        questionary.text("Enterキーを押してメインメニューに戻ります...").ask()
+        return
+
+    file_choices = [
+        Choice(f"[{i+1}] {os.path.basename(f)}", value=os.path.basename(f)) 
+        for i, f in enumerate(sorted(yaml_files))
+    ]
+    
+    choices = [
+        Choice("[ 戻る ]", value="back"),
+        questionary.Separator('--- YAML ファイル一覧 ---')
+    ] + file_choices
+
+    selected_yaml_name = questionary.select(
+        "ロードするYAMLファイルを選択してください:",
+        choices=choices,
+    ).ask()
+    
+    if selected_yaml_name is None or selected_yaml_name == "back":
+        return
+
+    selected_yaml_path = os.path.join(param_dir, selected_yaml_name)
+    print(f"\n⏳ 実行中: ros2 param load {node_name} {selected_yaml_path}")
+    result = run_command(['ros2', 'param', 'load', node_name, selected_yaml_path])
+    
+    if result.returncode == 0:
+        print("\n✅ パラメータのロードに成功しました。")
+    else:
+        print("\n❌ パラメータのロードに失敗しました。")
+        print("--- エラー出力 ---\n" + result.stderr + "--------------------")
         
-        action = questionary.select(
-            "実行するアクションを選択してください:",
-            choices=[
-                Choice("YAMLファイルを選択してロード", value="load"),
-                Choice("ノードを再選択する", value="reselect_node"),
-                Choice("終了", value="exit")
-            ]
-        ).ask()
+    questionary.text("Enterキーを押してメインメニューに戻ります...").ask()
 
-        if action is None or action == "exit":
-            raise SystemExit()
-
-        if action == "reselect_node":
-            return
-
-        if action == "load":
-            while True:
-                yaml_files = glob.glob(os.path.join(param_dir, '*.yaml'))
-                yaml_files += glob.glob(os.path.join(param_dir, '*.yml'))
-
-                if not yaml_files:
-                    print(f"❌ ディレクトリ '{param_dir}' にYAMLファイルが見つかりません。")
-                    retry_action = questionary.select(
-                        "どうしますか？",
-                        choices=[Choice("リトライ", value="retry"), Choice("アクション選択に戻る", value="back")]
-                    ).ask()
-                    if retry_action == "back" or retry_action is None: break
-                    else:
-                        clear_screen()
-                        print(f"✅ 現在の選択ノード: {node_name}\n")
-                        continue
-                
-                numbered_file_choices = []
-                for i, filename in enumerate(sorted([os.path.basename(f) for f in yaml_files]), 1):
-                    numbered_file_choices.append(
-                        Choice(title=f"[{i}] {filename}", value=filename)
-                    )
-
-                choices = [
-                    Choice("[ 戻る ]", value="back"),
-                    questionary.Separator('--- YAML ファイル一覧 ---')
-                ] + numbered_file_choices
-
-                selected_yaml_name = questionary.select(
-                    "ロードするYAMLファイルを選択してください (矢印キーで選択):",
-                    choices=choices,
-                ).ask()
-                
-                if selected_yaml_name is None or selected_yaml_name == "back":
-                    break
-
-                selected_yaml_path = os.path.join(param_dir, selected_yaml_name)
-                print(f"\n⏳ 実行中: ros2 param load {node_name} {selected_yaml_path}")
-                result = run_command(['ros2', 'param', 'load', node_name, selected_yaml_path])
-                if result.returncode == 0:
-                    print("\n✅ パラメータのロードに成功しました。")
-                else:
-                    print("\n❌ パラメータのロードに失敗しました。")
-                    print("--- エラー出力 ---\n" + result.stderr + "--------------------")
-                questionary.text("Enterキーを押して続行...").ask()
-                break
-
-# ★ main関数を修正
 def main():
     """メイン関数"""
     parser = argparse.ArgumentParser(
-        description='A CUI tool to load ROS2 parameters interactively.'
+        description='ROS2パラメータを対話的にロードするCUIツール'
     )
-    # ★引数を必須(required)から任意(optional)に変更
     parser.add_argument(
         'param_dir', 
-        nargs='?', # 0か1個の引数を受け取る
-        default=None, # 引数がなければNoneになる
-        help='(Optional) Directory path where YAML parameter files are stored.'
+        nargs='?',
+        default=None,
+        help='(任意) パラメータYAMLファイルが格納されているディレクトリパス'
     )
     args = parser.parse_args()
     
-    # --- 引数の有無で動作を分岐 ---
-    param_dir_from_arg = args.param_dir
-    
+    # --- 状態管理 ---
+    current_node = None
+    current_dir = args.param_dir
+
+    if current_dir and not os.path.isdir(current_dir):
+        print(f"❌ エラー: 指定されたディレクトリ '{current_dir}' が見つかりません。")
+        sys.exit(1)
+
     try:
-        if param_dir_from_arg:
-            # ケースA: 引数が指定された場合
-            if not os.path.isdir(param_dir_from_arg):
-                print(f"❌ Error: Directory not found at '{param_dir_from_arg}'")
-                sys.exit(1)
+        while True:
+            clear_screen()
             
-            while True:
-                selected_node = select_node_loop()
-                if selected_node is None: break
-                param_load_loop(selected_node, param_dir_from_arg)
-        else:
-            # ケースB: 引数が指定されなかった場合
-            while True:
-                selected_node = select_node_loop()
-                if selected_node is None: break
-                
-                # ディレクトリ選択モードを開始
-                selected_dir = select_directory_loop()
-                if selected_dir is None: continue # ディレクトリ選択をキャンセルしたらノード選択に戻る
-                
-                param_load_loop(selected_node, selected_dir)
+            # --- 現在の状態を表示 ---
+            node_display = f"🎯 現在のノード: {current_node}" if current_node else "🎯 現在のノード: 🚫 未選択"
+            dir_display = f"📂 現在のディレクトリ: {current_dir}" if current_dir else "📂 現在のディレクトリ: 🚫 未選択"
+            print(f"ROS2 Param Loader\n{'-'*30}")
+            print(node_display)
+            print(dir_display)
+            print(f"{'-'*30}\n")
+
+            # --- アクション選択 ---
+            main_choices = [
+                Choice("ノードを選択/変更する", value="select_node"),
+                Choice("ディレクトリを選択/変更する", value="select_dir"),
+                questionary.Separator(),
+            ]
+            
+            # ノードとディレクトリが両方選択されている場合のみロード選択肢を表示
+            if current_node and current_dir:
+                main_choices.append(Choice("YAMLファイルを選択してパラメータをロードする", value="load_param"))
+            else:
+                 main_choices.append(Choice("YAMLファイルをロード (ノードとディレクトリを選択してください)", value="load_param", disabled=True))
+
+            main_choices.extend([
+                questionary.Separator(),
+                Choice("終了", value="exit")
+            ])
+            
+            action = questionary.select(
+                "実行するアクションを選択してください:",
+                choices=main_choices
+            ).ask()
+
+            if action is None or action == "exit":
+                break
+
+            if action == "select_node":
+                selected = select_node()
+                if selected: # Noneでない場合（正常に選択された場合）のみ更新
+                    current_node = selected
+            
+            elif action == "select_dir":
+                selected = select_directory()
+                if selected: # Noneでない場合のみ更新
+                    current_dir = selected
+
+            elif action == "load_param":
+                if current_node and current_dir:
+                    select_and_load_param(current_node, current_dir)
 
     except (KeyboardInterrupt, SystemExit):
         pass
