@@ -6,14 +6,25 @@
     window_size: 5
     # スケール/クリップフィルタを有効にするか
     use_scale_filter: true
-    scale_filter_type: "normal" # "normal" or "advance"
+    # スケールフィルタの種類: "normal" or "advance"
+    scale_filter_type: "normal"
 
-    ## normalフィルタのパラメータ
-    speed_scale_ratio: 1.0
-    steer_scale_ratio: 1.0
+    # ---------------------------------------------------
+    # "normal" モード用のパラメータグループ
+    # ---------------------------------------------------
+    normal:
+      speed_scale_ratio: 1.0
+      steer_scale_ratio: 1.0
 
-    ## advanceフィルタのパラメータ
-    straight_steer_threshold: 0.15 # 直進状態と判断する操舵角の閾値 (単位: rad)。この絶対値未満のときに直進とみなす。
-    speed_scale_ratio: 1.0 # 直進状態のときに速度に乗算するスケール比
-    cornering_speed_scale_ratio: 1.0 # カーブ状態のときに速度に乗算するスケール比
-    steer_scale_ratio: 1.0 # 操舵角に乗算するスケール比 (常に適用)
+    # ---------------------------------------------------
+    # "advance" モード用のパラメータグループ
+    # ---------------------------------------------------
+    advance:
+      # 直進状態と判断する操舵角の閾値 (単位: rad)
+      straight_steer_threshold: 0.075
+      # ★★★ "直進時"の速度スケール比
+      straight_speed_scale_ratio: 1.0
+      # カーブ時の速度スケール比
+      cornering_speed_scale_ratio: 1.0
+      # 操舵角のスケール比
+      steer_scale_ratio: 1.0
